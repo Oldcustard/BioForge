@@ -26,15 +26,11 @@ variants:
 schema:
   fields:
     # ---- Scan scope -------------------------------------------------------
-    - name: "Scan Hotkey"
-      path: "scan.hotkey"
-      type: "int"
-      description: "DirectInput scan code for the scan hotkey. 0x44 (68) is F10. Set to 0 to disable the hotkey entirely."
-      defaultValue: 68
-      min: 0
-      max: 255
-      category: "Scan"
-
+    # No hotkey setting: the UI is a page in SKSE Menu Framework's mod control
+    # panel, opened with SMF's own global toggle key. A per-mod hotkey would be
+    # one more binding to collide with - and SkyrimNet's Hotkey.yaml already uses
+    # VIRTUAL-KEY codes while CommonLibSSE reports DirectInput scan codes, so two
+    # hotkey settings side by side would disagree about what "F10" means.
     - name: "Scan Radius"
       path: "scan.radius"
       type: "float"

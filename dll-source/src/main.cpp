@@ -1,70 +1,20 @@
 #include "pch.h"
 
 #include "Config.h"
-#include "ScopeSelector.h"
 #include "SkyrimNetAPI.h"
+#include "UI.h"
 
 namespace
 {
-    // SkyrimNet's PublicSendCustomPromptToLLM arrived in API v8. Everything phase 1
-    // touches is v3+, but there is no point loading against a SkyrimNet we cannot
-    // eventually generate with, so warn loudly and keep going read-only.
+    // SkyrimNet's PublicSendCustomPromptToLLM arrived in API v8. Everything the
+    // scan touches is v3+, but there is no point loading against a SkyrimNet we
+    // could never generate with, so warn loudly and stay read-only.
     constexpr int kMinUsefulAPIVersion = 8;
 
-    void RunGapScan()
-    {
-        if (!BioForge::SN::Available()) {
-            logs::warn("scan requested but SkyrimNet is not available"sv);
-            return;
-        }
-        BioForge::LogGapReport(BioForge::Scan());
-    }
-
-    class HotkeySink : public RE::BSTEventSink<RE::InputEvent*>
-    {
-    public:
-        static HotkeySink* GetSingleton()
-        {
-            static HotkeySink singleton;
-            return &singleton;
-        }
-
-        RE::BSEventNotifyControl ProcessEvent(RE::InputEvent* const*        a_event,
-                                              RE::BSTEventSource<RE::InputEvent*>*) override
-        {
-            const auto hotkey = BioForge::Config::Get().scanHotkey;
-            if (!a_event || hotkey == 0) {
-                return RE::BSEventNotifyControl::kContinue;
-            }
-
-            for (auto* e = *a_event; e; e = e->next) {
-                if (e->eventType != RE::INPUT_EVENT_TYPE::kButton) {
-                    continue;
-                }
-                const auto* button = e->AsButtonEvent();
-                if (!button || !button->IsDown()) {
-                    continue;   // IsDown() is the press edge; IsPressed() would repeat
-                }
-                if (button->GetDevice() != RE::INPUT_DEVICE::kKeyboard) {
-                    continue;
-                }
-                if (button->GetIDCode() == hotkey) {
-                    RunGapScan();
-                }
-            }
-
-            return RE::BSEventNotifyControl::kContinue;
-        }
-
-    private:
-        HotkeySink()                             = default;
-        HotkeySink(const HotkeySink&)            = delete;
-        HotkeySink& operator=(const HotkeySink&) = delete;
-    };
-
-    // SkyrimNet's own header specifies kDataLoaded for FindFunctions(): action and
-    // decorator registration works from there, and data queries stay safe (they
-    // return empty) until a save loads.
+    // SkyrimNet's own header specifies kDataLoaded for FindFunctions(): registration
+    // works from there, and data queries stay safe (they return empty) until a save
+    // loads. The SMF page is registered earlier, in SKSEPlugin_Load, and only reads
+    // any of this when the user actually opens it.
     void OnMessage(SKSE::MessagingInterface::Message* a_msg)
     {
         if (!a_msg || a_msg->type != SKSE::MessagingInterface::kDataLoaded) {
@@ -85,14 +35,6 @@ namespace
         }
 
         BioForge::Config::Load();
-
-        if (auto* input = RE::BSInputDeviceManager::GetSingleton()) {
-            input->AddEventSink<RE::InputEvent*>(HotkeySink::GetSingleton());
-            logs::info("scan hotkey bound to scan code 0x{:02X}"sv,
-                       BioForge::Config::Get().scanHotkey);
-        } else {
-            logs::error("no input device manager - scan hotkey unavailable"sv);
-        }
     }
 }
 
@@ -105,6 +47,10 @@ extern "C" __declspec(dllexport) bool SKSEAPI SKSEPlugin_Load(const SKSE::LoadIn
     if (!messaging || !messaging->RegisterListener(OnMessage)) {
         SKSE::stl::report_and_fail("Bio Forge: failed to register the SKSE message listener"sv);
     }
+
+    // SMF ships a preload marker, so its DLL is already in the process by the time
+    // ordinary SKSE plugins load - registering here matches SMF's own example.
+    BioForge::UI::Register();
 
     return true;
 }

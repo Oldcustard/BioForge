@@ -6,9 +6,6 @@ namespace BioForge::Config
 {
     struct Settings
     {
-        // DirectInput scan code. 0x44 = F10. 0 disables the hotkey.
-        std::uint32_t scanHotkey = 0x44;
-
         // Radius scan, in game units. ~3000 comfortably covers an inn interior.
         float scanRadius = 3000.0f;
 
