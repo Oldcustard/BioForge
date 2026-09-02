@@ -1,0 +1,116 @@
+# Bio Forge — SkyrimNet plugin manifest.
+#
+# SkyrimNet auto-discovers plugin folders under
+# `Data/SKSE/Plugins/SkyrimNet/config/plugins/<plugin>/` and ingests this file.
+#
+#   1. `variants:` declares named LLM-config profiles. Bio Forge calls
+#      SendCustomPromptToLLM(promptName, variant, ctx, cb) with the variant
+#      below, so the user picks the model in SkyrimNet's own UI and Bio Forge
+#      never handles an API key. With no variant entry the call silently falls
+#      back to SkyrimNet's default Dialogue LLM.
+#
+#   2. `schema.fields:` declares the settings SkyrimNet shows in its in-game UI.
+#      The `path:` values here are exactly what the DLL reads through
+#      PublicGetPluginConfigValue("BioForge", <path>, <default>) — keep them in
+#      sync with Config.cpp.
+
+plugin:
+  name: BioForge
+  version: "0.1.0"
+  description: "Writes SkyrimNet character bios for mod-added NPCs that have none, from the characterisation their own mod already authored — dialogue, factions, outfit, location."
+
+variants:
+  - name: bioforge_generate
+    description: "The bio writer — produces a full ten-block character profile from an NPC's available dialogue tree and record data. This is long-form creative prose against a large context and it is not latency-critical (it runs as an explicit batch, never mid-conversation), so it rewards a capable model rather than a cheap one. Quality here is permanent: a bio is written once and then shapes every conversation that NPC ever has."
+
+schema:
+  fields:
+    # ---- Scan scope -------------------------------------------------------
+    - name: "Scan Hotkey"
+      path: "scan.hotkey"
+      type: "int"
+      description: "DirectInput scan code for the scan hotkey. 0x44 (68) is F10. Set to 0 to disable the hotkey entirely."
+      defaultValue: 68
+      min: 0
+      max: 255
+      category: "Scan"
+
+    - name: "Scan Radius"
+      path: "scan.radius"
+      type: "float"
+      description: "Radius in game units to look for NPCs. Roughly 3000 covers an inn interior. Ignored for what falls outside the current cell when 'Current Cell Only' is on."
+      defaultValue: 3000.0
+      min: 100.0
+      max: 20000.0
+      category: "Scan"
+
+    - name: "Current Cell Only"
+      path: "scan.cellOnly"
+      type: "bool"
+      description: "Restrict the scan to the player's current cell. Off widens it to everything within the radius, which outdoors can be a lot of people."
+      defaultValue: true
+      category: "Scan"
+
+    - name: "Unique NPCs Only"
+      path: "scan.uniqueOnly"
+      type: "bool"
+      description: "Only consider NPCs flagged Unique. Generic leveled actors (bandits, guards, drunks) share base records and are served correctly by SkyrimNet's generic fallback template, so writing them individual bios is wasted effort. Turning this off also makes the reported race unreliable, because a leveled actor's editor base is a template shell with placeholder traits."
+      defaultValue: true
+      category: "Scan"
+
+    - name: "Include Dead"
+      path: "scan.includeDead"
+      type: "bool"
+      description: "Include dead actors in the scan."
+      defaultValue: false
+      category: "Scan"
+
+    # ---- LLM overrides ----------------------------------------------------
+    # All optional. Empty / 0 = inherit from the base SkyrimNet LLM config.
+    - name: "API Endpoint"
+      path: "llm.endpoint"
+      type: "string"
+      description: "Custom API endpoint URL for bio generation. Leave empty to use the base endpoint."
+      defaultValue: ""
+      category: "LLM Overrides"
+
+    - name: "API Key"
+      path: "llm.api_key"
+      type: "string"
+      description: "API key for the custom endpoint above. Leave empty to use the base API key."
+      defaultValue: ""
+      category: "LLM Overrides"
+
+    - name: "Model Name"
+      path: "llm.model_name"
+      type: "string"
+      description: "Override model for bio generation. Leave empty to use the same model as dialogue."
+      defaultValue: ""
+      category: "LLM Overrides"
+
+    - name: "Temperature"
+      path: "llm.temperature"
+      type: "float"
+      description: "Override sampling temperature. Bios are creative prose and tolerate a moderate temperature. Set to 0 to inherit the base config value."
+      defaultValue: 0
+      min: 0.0
+      max: 2.0
+      category: "LLM Overrides"
+
+    - name: "Max Tokens"
+      path: "llm.max_tokens"
+      type: "int"
+      description: "Override max response tokens. A full ten-block bio runs to roughly 4000 characters, so this needs real headroom. Set to 0 to inherit the base config value."
+      defaultValue: 0
+      min: 0
+      max: 16384
+      category: "LLM Overrides"
+
+    - name: "Request Timeout (seconds)"
+      path: "llm.timeout"
+      type: "int"
+      description: "Override request timeout in seconds. Set to 0 to inherit the base config value."
+      defaultValue: 0
+      min: 0
+      max: 600
+      category: "LLM Overrides"
