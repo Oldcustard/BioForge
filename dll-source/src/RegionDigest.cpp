@@ -9,6 +9,7 @@
 
 #include <atomic>
 #include <cctype>
+#include <chrono>
 #include <fstream>
 #include <map>
 #include <mutex>
@@ -34,10 +35,16 @@ namespace BioForge::RegionDigest
         };
         constexpr auto kHoldType = "LocTypeHold"sv;
 
-        // Below this many bios naming the settlement itself, the harvest is
-        // topped up from the surrounding hold - otherwise a hamlet hands the
-        // model almost nobody to choose from.
-        constexpr std::size_t kMinPrimary = 25;
+        // Score bands. A bio naming the settlement always outranks one that
+        // only names the hold, so hold-only entries fill leftover room and can
+        // never crowd out the settlement's own cast - which is what the old
+        // explicit primary/secondary top-up did by hand.
+        constexpr int kInSummary     = 1000;   // settlement named in the summary
+        constexpr int kInBody        = 100;    // settlement named somewhere else
+        constexpr int kPerMention    = 10;     // per occurrence, capped
+        constexpr int kMaxMentions   = 5;
+        constexpr int kHoldInSummary = 20;     // hold-only, named in the summary
+        constexpr int kHoldInBody    = 1;      // hold-only, mentioned in passing
 
         std::mutex                                      g_mutex;
         std::map<std::string, std::string, std::less<>> g_cache;
@@ -98,6 +105,12 @@ namespace BioForge::RegionDigest
 
         std::string FirstSentence(std::string_view a_text, std::size_t a_maxChars)
         {
+            // The captured summary starts with the newline after the block tag.
+            while (!a_text.empty() && (a_text.front() == ' ' || a_text.front() == '\n' ||
+                                       a_text.front() == '\r' || a_text.front() == '\t')) {
+                a_text.remove_prefix(1);
+            }
+
             const auto stop = a_text.find(". ");
             auto       cut  = stop == std::string_view::npos ? a_text.size() : stop + 1;
             // (std::min) parenthesized: windows.h defines min as a macro, and
@@ -149,6 +162,25 @@ namespace BioForge::RegionDigest
             return out;
         }
 
+        std::size_t CountOccurrences(std::string_view a_haystack, std::string_view a_needle)
+        {
+            if (a_needle.empty()) {
+                return 0;
+            }
+            std::size_t count = 0;
+            for (auto pos = a_haystack.find(a_needle); pos != std::string_view::npos;
+                 pos      = a_haystack.find(a_needle, pos + a_needle.size())) {
+                ++count;
+            }
+            return count;
+        }
+
+        struct ScoredBio
+        {
+            int         score{};
+            std::string line;
+        };
+
         bool IsSettlement(const RE::BGSLocation* a_location)
         {
             return std::any_of(std::begin(kSettlementTypes), std::end(kSettlementTypes),
@@ -163,10 +195,19 @@ namespace BioForge::RegionDigest
             return name ? std::string{ name } : std::string{};
         }
 
-        // Existing bios that name this place. The candidate source is the
-        // user's OWN installed corpus: each bio's summary block is a ready-made
-        // description, and the set reflects their actual load order, mod-added
-        // characters included.
+        // Existing bios that name this place, ranked. The candidate source is
+        // the user's OWN installed corpus: each bio's summary block is a
+        // ready-made description, and the set reflects their actual load order,
+        // mod-added characters included.
+        //
+        // INTERIM HEURISTIC. This reads the whole corpus and keeps the highest
+        // scoring a_max, replacing an earlier version that stopped at the first
+        // a_max it walked past. That cut alphabetically: on a 3,200-bio corpus
+        // Riften filled its 120 slots by "J", so every mod-added NPC sorting
+        // later was dropped silently - the exact characters the digest exists to
+        // surface, since the model can supply vanilla Riften unaided. Ranking is
+        // a better cut, not a principled one; if this is revisited, the thing to
+        // fix is that a substring hit anywhere in a file still counts at all.
         std::string GatherCandidates(const Region& a_region, std::size_t a_max)
         {
             const auto      dir = Staging::PromptsDir() / "characters";
@@ -180,68 +221,78 @@ namespace BioForge::RegionDigest
                 R"(\{%\s*block\s+summary\s*%\}([\s\S]*?)\{%\s*endblock)"
             };
 
-            // Two tiers. A bio naming the settlement is direct evidence about
-            // this place; one naming only the hold is the fallback for a hamlet
-            // whose own name almost nobody mentions. Keeping them apart is the
-            // whole point of narrowing the key - topping up from the hold must
-            // never crowd out the settlement's own cast.
-            std::vector<std::string> primary;
-            std::vector<std::string> secondary;
+            const auto started = std::chrono::steady_clock::now();
 
-            // Bounded: a corpus can run to thousands of files, and there is no
-            // reason to read them all once the answer is in hand.
-            const std::size_t ceiling = a_max * 2;
+            std::vector<ScoredBio> scored;
+            std::size_t            examined = 0;
+            std::size_t            holdOnly = 0;
 
             for (const auto& file : std::filesystem::directory_iterator{ dir, ec }) {
-                if (primary.size() >= a_max ||
-                    primary.size() + secondary.size() >= ceiling) {
-                    break;
-                }
                 if (!file.is_regular_file() || file.path().extension() != ".prompt") {
                     continue;   // also skips the .prompt.backup.<time> files
                 }
+                ++examined;
 
                 const auto text = ReadFile(file.path());
                 if (text.empty()) {
                     continue;
                 }
 
-                const bool namesRegion = text.find(a_region.name) != std::string::npos;
-                const bool namesHold   = !a_region.hold.empty() &&
-                                       text.find(a_region.hold) != std::string::npos;
-                if (!namesRegion && !namesHold) {
+                const auto regionHits = CountOccurrences(text, a_region.name);
+                const auto holdHits   = CountOccurrences(text, a_region.hold);
+                if (regionHits == 0 && holdHits == 0) {
                     continue;
                 }
 
                 std::smatch match;
                 if (!std::regex_search(text, match, summaryRe)) {
-                    continue;
+                    continue;   // no summary block: nothing to describe them with
+                }
+                const std::string summary = match[1].str();
+
+                int score = 0;
+                if (regionHits > 0) {
+                    // Named in the SUMMARY is the strong signal - that is where
+                    // a bio says who someone is and where they are. Elsewhere in
+                    // the file it may be a caravan route or an absent relative:
+                    // Jofthor farms in Ivarstead and Janus keeps a shop in
+                    // Rorikstead, and both mention Riften in passing.
+                    score += summary.find(a_region.name) != std::string::npos ? kInSummary
+                                                                             : kInBody;
+                    score += kPerMention * static_cast<int>(
+                                               (std::min)(regionHits,
+                                                          static_cast<std::size_t>(kMaxMentions)));
+                } else {
+                    ++holdOnly;
+                    score += summary.find(a_region.hold) != std::string::npos ? kHoldInSummary
+                                                                             : kHoldInBody;
                 }
 
-                auto line = "- " + NameFromStem(file.path().stem().string()) + ": " +
-                            FirstSentence(match[1].str(), 240) + "\n";
-                (namesRegion ? primary : secondary).push_back(std::move(line));
+                scored.push_back(ScoredBio{
+                    score,
+                    "- " + NameFromStem(file.path().stem().string()) + ": " +
+                        FirstSentence(summary, 240) + "\n" });
             }
 
+            // Stable: equal scores keep directory order, so the same corpus
+            // produces the same sheet twice.
+            std::stable_sort(scored.begin(), scored.end(),
+                             [](const ScoredBio& a_lhs, const ScoredBio& a_rhs) {
+                                 return a_lhs.score > a_rhs.score;
+                             });
+
+            const auto  keep = (std::min)(scored.size(), a_max);
             std::string out;
-            for (const auto& line : primary) {
-                out += line;
+            for (std::size_t i = 0; i < keep; ++i) {
+                out += scored[i].line;
             }
 
-            std::size_t toppedUp = 0;
-            if (primary.size() < kMinPrimary) {
-                for (const auto& line : secondary) {
-                    if (primary.size() + toppedUp >= a_max) {
-                        break;
-                    }
-                    out += line;
-                    ++toppedUp;
-                }
-            }
-
-            logs::info("digest: {} - {} bio(s) name it, {} topped up from {}"sv,
-                       a_region.name, primary.size(), toppedUp,
-                       a_region.hold.empty() ? std::string{ "(no hold)" } : a_region.hold);
+            const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                std::chrono::steady_clock::now() - started)
+                                .count();
+            logs::info(
+                "digest: {} - {} of {} bio(s) match ({} hold-only), keeping the {} strongest [{}ms]"sv,
+                a_region.name, scored.size(), examined, holdOnly, keep, ms);
             return out;
         }
     }
