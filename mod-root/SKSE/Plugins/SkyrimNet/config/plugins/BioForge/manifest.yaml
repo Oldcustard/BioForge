@@ -68,3 +68,32 @@ schema:
       min: 1
       max: 8
       category: "Generation"
+
+    # ---- Regional digest ---------------------------------------------------
+    # A short reference sheet of who holds power, trade and property in one
+    # settlement, written once by the LLM and reused by every bio generated
+    # there. It exists because the mechanical signals that would connect an NPC
+    # to the wider world - proper nouns in their dialogue, shared factions,
+    # world knowledge - are all empty for a typical mod-added NPC.
+    - name: "Use Regional Digests"
+      path: "digest.enabled"
+      type: "bool"
+      description: "Give each bio a short reference sheet of who matters in the settlement it is written in, so relationships can name real local people and institutions instead of falling back on 'the customers' and 'the locals'. The sheet is written once per settlement and reused, so it costs one extra generation per town rather than one per NPC. Off means every bio is written from that NPC's own evidence alone."
+      defaultValue: true
+      category: "Regional digest"
+
+    - name: "Build Digest Before A Batch"
+      path: "digest.autoBuild"
+      type: "bool"
+      description: "When you run a batch in a settlement that has no digest yet, build one first and hold the batch until it lands. Off generates the batch immediately without one. This only affects batches - generating a single NPC never spends an extra call building a digest, it just uses one if it is already there."
+      defaultValue: true
+      category: "Regional digest"
+
+    - name: "Bios Harvested Per Digest"
+      path: "digest.maxCandidates"
+      type: "int"
+      description: "How many of your installed character bios to offer the digest as evidence about who actually lives in a settlement. This is the one large block in that prompt, so it is capped. Bios naming the settlement come first; if too few do, the rest is topped up from the surrounding hold."
+      defaultValue: 120
+      min: 20
+      max: 400
+      category: "Regional digest"

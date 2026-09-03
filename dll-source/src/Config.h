@@ -23,6 +23,20 @@ namespace BioForge::Config
         // the fastest way to meet a provider's rate limit. Two keeps the queue
         // moving without looking like an attack.
         int maxConcurrent = 2;
+
+        // Hand every bio a short reference sheet of who matters in the
+        // settlement it is being written in. Off means bios are written from
+        // the NPC's own evidence alone.
+        bool digestEnabled = true;
+
+        // Build that sheet automatically before a BATCH when none is cached.
+        // Only the batch: a single generation should not silently spend an
+        // extra LLM call, and it is the batch the cost amortises over anyway.
+        bool digestAutoBuild = true;
+
+        // How many installed bios to offer the digest as candidates. This is
+        // the one genuinely large block in that prompt, so it is capped.
+        int digestMaxCandidates = 120;
     };
 
     // Reads SkyrimNet's config store for this plugin, falling back to the

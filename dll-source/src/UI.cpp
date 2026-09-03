@@ -9,6 +9,7 @@
 #include "UI.h"
 #include "Config.h"
 #include "Generator.h"
+#include "RegionDigest.h"
 #include "ScopeSelector.h"
 #include "StagingStore.h"
 #include "SkyrimNetAPI.h"
@@ -53,6 +54,50 @@ namespace BioForge::UI
                                    cfg.scanRadius,
                                    cfg.uniqueOnly ? "unique" : "all",
                                    cfg.includeDead ? ", including dead" : "");
+        }
+
+        // The region line. Worth its own row because the digest is the one
+        // piece of context that is shared, cached and expensive - the user
+        // should be able to see whether the bios they are about to generate
+        // will have it, before spending the calls.
+        void DrawRegion()
+        {
+            const auto& cfg = Config::Get();
+            if (!cfg.digestEnabled) {
+                ImGuiMCP::TextDisabled("Regional digest off - bios use each NPC's own evidence only.");
+                return;
+            }
+
+            const auto region = RegionDigest::Current();
+            if (!region.Valid()) {
+                ImGuiMCP::TextDisabled("Region: (none here) - no digest out in the wilds.");
+                return;
+            }
+
+            const bool building = RegionDigest::Building();
+            const auto digest   = RegionDigest::Get(region.name);
+
+            if (region.hold.empty()) {
+                ImGuiMCP::Text("Region: %s", region.name.c_str());
+            } else {
+                ImGuiMCP::Text("Region: %s (%s)", region.name.c_str(), region.hold.c_str());
+            }
+            ImGuiMCP::SameLine();
+
+            if (building) {
+                ImGuiMCP::TextColored(kGapColour, "- digest building...");
+                return;
+            }
+            if (digest.empty()) {
+                ImGuiMCP::TextColored(kGapColour, "- no digest");
+            } else {
+                ImGuiMCP::TextColored(kHaveColour, "- digest ready");
+            }
+
+            ImGuiMCP::SameLine();
+            if (ImGuiMCP::Button(digest.empty() ? "Build digest" : "Rebuild digest")) {
+                RegionDigest::Build(region, !digest.empty());
+            }
         }
 
         void DrawResults(const std::vector<Staging::Entry>& a_staged)
@@ -279,9 +324,15 @@ namespace BioForge::UI
 
             const auto progress = Generator::GetProgress();
             if (progress.Busy()) {
-                ImGuiMCP::TextColored(kGapColour, "Generating: %d in flight, %d queued",
-                                      progress.inFlight, progress.queued);
-                if (progress.queued > 0) {
+                if (progress.pending > 0) {
+                    ImGuiMCP::TextColored(kGapColour,
+                                          "Waiting on the %s digest: %d bio(s) queued behind it",
+                                          progress.pendingRegion.c_str(), progress.pending);
+                } else {
+                    ImGuiMCP::TextColored(kGapColour, "Generating: %d in flight, %d queued",
+                                          progress.inFlight, progress.queued);
+                }
+                if (progress.queued > 0 || progress.pending > 0) {
                     ImGuiMCP::SameLine();
                     if (ImGuiMCP::Button("Cancel queued")) {
                         Generator::CancelQueued();
@@ -358,7 +409,15 @@ namespace BioForge::UI
         // generation only run on button presses, never per frame.
         void __stdcall Render()
         {
+            // The plugin's only main-thread pump. A batch held for its region
+            // digest is released here, so it advances only while this panel is
+            // open - which is where you pressed the button and are watching it.
+            Generator::Tick();
+
             DrawStatus();
+            if (SN::Available()) {
+                DrawRegion();
+            }
             ImGuiMCP::Separator();
 
             if (ImGuiMCP::Button("Scan for missing bios")) {

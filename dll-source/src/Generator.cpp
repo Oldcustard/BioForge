@@ -3,13 +3,15 @@
 #include "Generator.h"
 
 #include "Config.h"
+#include "Json.h"
+#include "RegionDigest.h"
 #include "ScopeSelector.h"
 #include "StagingStore.h"
 #include "SkyrimNetAPI.h"
 
-#include <cstdio>
 #include <deque>
 #include <mutex>
+#include <utility>
 
 namespace BioForge::Generator
 {
@@ -25,30 +27,6 @@ namespace BioForge::Generator
         // variant inherits the dialogue defaults (a flash model on a 4k cap,
         // which is tight for a ten-block bio).
         constexpr auto kVariant = "CharacterProfileGeneration"sv;
-
-        std::string JsonEscape(std::string_view a_s)
-        {
-            std::string out;
-            out.reserve(a_s.size() + 8);
-            for (const char ch : a_s) {
-                switch (ch) {
-                case '"':  out += "\\\""; break;
-                case '\\': out += "\\\\"; break;
-                case '\n': out += "\\n";  break;
-                case '\r': out += "\\r";  break;
-                case '\t': out += "\\t";  break;
-                default:
-                    if (static_cast<unsigned char>(ch) < 0x20) {
-                        char buf[7];
-                        std::snprintf(buf, sizeof(buf), "\\u%04x", ch);
-                        out += buf;
-                    } else {
-                        out += ch;
-                    }
-                }
-            }
-            return out;
-        }
 
         // Pull the string values of one key out of a flat JSON array of
         // objects. Deliberately a scanner and not a parser: the two payloads
@@ -109,8 +87,9 @@ namespace BioForge::Generator
         // The harvest the DLL side adds. Everything else (dialogue, stats,
         // equipment, location) the template pulls itself through decorators -
         // that is what keeps prompt iteration rebuild-free.
-        std::string BuildContext(const Candidate& a_candidate,
-                                 const std::vector<Candidate>& a_roster)
+        std::string BuildContext(const Candidate&              a_candidate,
+                                 const std::vector<Candidate>& a_roster,
+                                 std::string_view              a_regionDigest)
         {
             const auto uuid = SN::FormIDToUUID(a_candidate.refFormID);
             if (uuid == 0) {
@@ -158,10 +137,14 @@ namespace BioForge::Generator
 
             return std::string{ "{" }
                    + "\"actorUUID\":" + decimal + ","
-                   + "\"localActors\":\"" + JsonEscape(roster) + "\","
-                   + "\"sourcePlugin\":\"" + JsonEscape(a_candidate.sourcePlugin) + "\","
-                   + "\"relatedActors\":\"" + JsonEscape(related) + "\","
-                   + "\"worldKnowledge\":\"" + JsonEscape(world) + "\"}";
+                   + "\"localActors\":\"" + Json::Escape(roster) + "\","
+                   + "\"sourcePlugin\":\"" + Json::Escape(a_candidate.sourcePlugin) + "\","
+                   + "\"relatedActors\":\"" + Json::Escape(related) + "\","
+                   + "\"worldKnowledge\":\"" + Json::Escape(world) + "\","
+                   // Who matters in this settlement, written once and reused by
+                   // every bio generated here. Already bullet lines, so it is
+                   // safe to drop straight into a heading's body.
+                   + "\"regionDigest\":\"" + Json::Escape(a_regionDigest) + "\"}";
         }
     }
 
@@ -182,6 +165,13 @@ namespace BioForge::Generator
         std::mutex      g_queueMutex;
         std::deque<Job> g_queue;
         int             g_inFlight = 0;
+
+        // A batch held back until its region digest lands. These stay
+        // Candidates rather than Jobs because assembling a job reads game
+        // data, which only the UI thread may do - see Tick().
+        std::vector<Candidate> g_pending;
+        std::vector<Candidate> g_pendingRoster;
+        std::string            g_pendingRegion;
 
         void Pump();
 
@@ -245,9 +235,9 @@ namespace BioForge::Generator
 
         // Main thread only - reads game data through the SkyrimNet API.
         bool BuildJob(const Candidate& a_candidate, const std::vector<Candidate>& a_roster,
-                      Job& a_job)
+                      std::string_view a_regionDigest, Job& a_job)
         {
-            const auto context = BuildContext(a_candidate, a_roster);
+            const auto context = BuildContext(a_candidate, a_roster, a_regionDigest);
             if (context.empty()) {
                 return false;
             }
@@ -257,6 +247,33 @@ namespace BioForge::Generator
             a_job.fileName    = Staging::BioFileName(a_candidate);
             a_job.contextJson = context;
             return true;
+        }
+
+        // Build first, lock second. Assembling a job calls into SkyrimNet for
+        // related actors and world knowledge, and holding the queue lock across
+        // that would stall the workers trying to pick up their next job.
+        std::size_t QueueJobs(const std::vector<Candidate>& a_candidates,
+                              const std::vector<Candidate>& a_roster,
+                              std::string_view              a_regionDigest)
+        {
+            std::vector<Job> jobs;
+            jobs.reserve(a_candidates.size());
+            for (const auto& c : a_candidates) {
+                Job job;
+                if (BuildJob(c, a_roster, a_regionDigest, job)) {
+                    jobs.push_back(std::move(job));
+                }   // otherwise BuildContext has already logged why
+            }
+
+            const std::size_t queued = jobs.size();
+            {
+                std::lock_guard lock{ g_queueMutex };
+                for (auto& job : jobs) {
+                    g_queue.push_back(std::move(job));
+                }
+            }
+            Pump();
+            return queued;
         }
 
         bool Ready()
@@ -279,8 +296,17 @@ namespace BioForge::Generator
             return false;
         }
 
+        // Whatever digest is already cached, and no more. A single generation
+        // deliberately does not build one: that is a second LLM call the user
+        // did not ask for, and the digest only pays for itself amortised over
+        // a batch. The panel shows whether one exists, and offers the button.
+        std::string digest;
+        if (Config::Get().digestEnabled) {
+            digest = RegionDigest::Get(RegionDigest::Current().name);
+        }
+
         Job job;
-        if (!BuildJob(a_candidate, a_roster, job)) {
+        if (!BuildJob(a_candidate, a_roster, digest, job)) {
             return false;
         }
 
@@ -299,36 +325,76 @@ namespace BioForge::Generator
             return 0;
         }
 
-        // Build first, lock second. Assembling a job calls into SkyrimNet for
-        // related actors and world knowledge, and holding the queue lock across
-        // that would stall the workers trying to pick up their next job.
-        std::vector<Job> jobs;
-        jobs.reserve(a_candidates.size());
-        for (const auto& c : a_candidates) {
-            Job job;
-            if (BuildJob(c, a_roster, job)) {
-                jobs.push_back(std::move(job));
-            }   // otherwise BuildContext has already logged why
-        }
+        std::string digest;
+        if (Config::Get().digestEnabled) {
+            const auto region = RegionDigest::Current();
+            if (region.Valid()) {
+                digest = RegionDigest::Get(region.name);
 
-        const std::size_t queued = jobs.size();
-        {
-            std::lock_guard lock{ g_queueMutex };
-            for (auto& job : jobs) {
-                g_queue.push_back(std::move(job));
+                // Nothing cached for this settlement. Running the batch now
+                // would quietly produce a whole cell's worth of bios that all
+                // lack the local knowledge the digest exists to supply, so hold
+                // the candidates and let Tick() queue them once it lands.
+                // Building() covers the case where the user already pressed the
+                // digest button and the batch button straight after.
+                if (digest.empty() && Config::Get().digestAutoBuild &&
+                    (RegionDigest::Building() || RegionDigest::Build(region))) {
+                    std::lock_guard lock{ g_queueMutex };
+                    g_pending       = a_candidates;
+                    g_pendingRoster = a_roster;
+                    g_pendingRegion = region.name;
+                    logs::info("generate: {} candidate(s) waiting on the region digest for {}"sv,
+                               a_candidates.size(), region.name);
+                    return 0;
+                }
             }
         }
 
+        const auto queued = QueueJobs(a_candidates, a_roster, digest);
         logs::info("generate: queued {} of {} candidate(s) for batch generation"sv,
                    queued, a_candidates.size());
-        Pump();
         return queued;
+    }
+
+    void Tick()
+    {
+        std::vector<Candidate> batch;
+        std::vector<Candidate> roster;
+        std::string            region;
+        {
+            std::lock_guard lock{ g_queueMutex };
+            if (g_pending.empty() || RegionDigest::Building()) {
+                return;   // nothing held, or still waiting - the common case
+            }
+            batch  = std::exchange(g_pending, {});
+            roster = std::exchange(g_pendingRoster, {});
+            region = std::exchange(g_pendingRegion, {});
+        }
+
+        // The build may have failed or come back unusable. Say so plainly and
+        // generate anyway - a bio without the local reference sheet is still a
+        // great deal better than no bio.
+        const auto digest = RegionDigest::Get(region);
+        if (digest.empty()) {
+            logs::warn("generate: no digest for {} - writing {} bio(s) without one"sv,
+                       region, batch.size());
+        }
+
+        const auto queued = QueueJobs(batch, roster, digest);
+        logs::info("generate: queued {} of {} candidate(s) held for the {} digest"sv,
+                   queued, batch.size(), region);
     }
 
     Progress GetProgress()
     {
         std::lock_guard lock{ g_queueMutex };
-        return Progress{ g_inFlight, static_cast<int>(g_queue.size()) };
+
+        Progress progress;
+        progress.inFlight      = g_inFlight;
+        progress.queued        = static_cast<int>(g_queue.size());
+        progress.pending       = static_cast<int>(g_pending.size());
+        progress.pendingRegion = g_pendingRegion;
+        return progress;
     }
 
     void CancelQueued()
@@ -336,8 +402,11 @@ namespace BioForge::Generator
         std::size_t dropped = 0;
         {
             std::lock_guard lock{ g_queueMutex };
-            dropped = g_queue.size();
+            dropped = g_queue.size() + g_pending.size();
             g_queue.clear();
+            g_pending.clear();
+            g_pendingRoster.clear();
+            g_pendingRegion.clear();
         }
         if (dropped > 0) {
             logs::info("generate: dropped {} queued job(s); in-flight requests still finish"sv,

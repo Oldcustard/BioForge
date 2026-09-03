@@ -5,3 +5,4 @@ vcpkg_installed/
 .vs/
 configure.log
 build.log
+__pycache__/

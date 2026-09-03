@@ -66,9 +66,17 @@ namespace BioForge::Config
         g_settings.maxConcurrent =
             std::clamp(ReadInt("generate.maxConcurrent", defaults.maxConcurrent), 1, 8);
 
+        g_settings.digestEnabled   = ReadBool("digest.enabled", defaults.digestEnabled);
+        g_settings.digestAutoBuild = ReadBool("digest.autoBuild", defaults.digestAutoBuild);
+        g_settings.digestMaxCandidates = std::clamp(
+            ReadInt("digest.maxCandidates", defaults.digestMaxCandidates), 20, 400);
+
         logs::info("config: radius={:.0f} cellOnly={} uniqueOnly={} includeDead={} maxConcurrent={}"sv,
                    g_settings.scanRadius, g_settings.cellOnly,
                    g_settings.uniqueOnly, g_settings.includeDead, g_settings.maxConcurrent);
+        logs::info("config: digest enabled={} autoBuild={} maxCandidates={}"sv,
+                   g_settings.digestEnabled, g_settings.digestAutoBuild,
+                   g_settings.digestMaxCandidates);
     }
 
     const Settings& Get() { return g_settings; }

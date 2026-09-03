@@ -1,5 +1,13 @@
-"""Probe SkyrimNet's render-template-preview to isolate the vanishing
-`## Notable skills` heading in bioforge_generate.prompt.
+"""Probe SkyrimNet's render-template-preview with the game running.
+
+Originally written to isolate the vanishing `## Notable skills` heading in
+bioforge_generate.prompt; the G/H cases are that investigation, kept because
+they document the heading-drop rule that still governs every edit to these
+templates. The D cases cover the regional digest section.
+
+`live_generate` / `live_digest` render the SHIPPED template files by name
+rather than a synthetic snippet, which is the check that actually matters
+before a release.
 
 Usage: python render_probe.py [case ...]   (default: all cases)
 """
@@ -12,6 +20,24 @@ URL = "http://127.0.0.1:8080/prompts?api=render-template-preview"
 TORG = "0CDD2B350A026B6D"  # hex-string form; decimal string renders FFFF...
 
 SETUP = "{% set npc = decnpc(actorUUID) %}\n"
+
+# The digest section as it is shipped, trailed by the heading that follows
+# it in the real template. The point of the D cases is that heading: a
+# section whose body renders empty takes the heading above it with it, and
+# can swallow the next one too.
+DIGEST_BLOCK = (
+    "{% if length(regionDigest) > 0 %}## Who matters around here\n"
+    "{{ regionDigest }}\n"
+    "Use it to ground relationships in real local names.\n"
+    "\n"
+    "{% endif %}## Their own dialogue\n"
+    "(dialogue would go here)\n"
+)
+
+SAMPLE_DIGEST = (
+    "- The Black-Briar family: owns the meadery and most of the guard's goodwill.\n"
+    "- Keerava: runs the Bee and Barb, where most of the town drinks."
+)
 
 MULTILINE_COMMENT = (
     "{# Skills sit at 15 by default; anything meaningfully above that is a real signal\n"
@@ -79,17 +105,41 @@ CASES = {
         SETUP + FACTIONS_BLOCK + "\n## Notable skills\n" + MULTILINE_COMMENT
         + skill_chain(14, plain_body=True) + "\n## After\nZ\n"
     ),
+    # D-series: the regional digest section, present and absent. Absent is the
+    # one that can go wrong - the section must vanish WITHOUT taking the
+    # heading that follows it.
+    "D_digest_present": (DIGEST_BLOCK, {"regionDigest": SAMPLE_DIGEST}),
+    "D_digest_absent": (DIGEST_BLOCK, {"regionDigest": ""}),
+}
+
+# Rendered by NAME from the installed prompts/, not from a snippet above.
+LIVE_CASES = {
+    "live_generate": ("bioforge_generate", {"regionDigest": SAMPLE_DIGEST}),
+    "live_digest": ("bioforge_region_digest", {
+        "regionName": "Riften",
+        "holdName": "The Rift",
+        "knownLocals": "- Keerava: runs the Bee and Barb.",
+    }),
 }
 
 
-def render(content: str):
+def render(content: str = None, template_name: str = None, **overrides):
+    # actorUUID goes as a HEX STRING here. That is the opposite of what the DLL
+    # injects (a JSON number) - the preview endpoint converts it for you, the
+    # decorators do not. Same template, different caller.
     payload = {
-        "content": content,
         "actorUUID": TORG,
         "sourcePlugin": "Mara's Embrace.esp",
         "worldKnowledge": "",
         "relatedActors": "",
+        "localActors": "",
+        "regionDigest": "",
     }
+    if content is not None:
+        payload["content"] = content
+    if template_name is not None:
+        payload["templateName"] = template_name
+    payload.update(overrides)
     req = urllib.request.Request(
         URL,
         data=json.dumps(payload).encode("utf-8"),
@@ -119,18 +169,28 @@ def extract_text(result):
 
 
 def main():
-    wanted = sys.argv[1:] or list(CASES)
+    wanted = sys.argv[1:] or list(CASES) + list(LIVE_CASES)
     for name in wanted:
-        content = CASES[name]
-        result = render(content)
+        if name in LIVE_CASES:
+            template_name, overrides = LIVE_CASES[name]
+            result = render(template_name=template_name, **overrides)
+        else:
+            case = CASES[name]
+            content, overrides = case if isinstance(case, tuple) else (case, {})
+            result = render(content=content, **overrides)
+
         ok, text = extract_text(result)
         print(f"=== {name} | ok={ok} | len={len(text)}")
         if not ok:
             print(f"    raw: {text}")
             continue
-        has_heading = "## Notable skills" in text
-        has_factions = "## Factions" in text
-        print(f"    factions_heading={has_factions} skills_heading={has_heading}")
+
+        headings = [ln for ln in text.splitlines() if ln.startswith("#")]
+        print(f"    headings: {headings}")
+        if name.startswith("D_") or name == "live_generate":
+            # The heading below the digest must survive either way.
+            print(f"    digest_heading={'## Who matters around here' in text} "
+                  f"next_heading={'## Their own dialogue' in text}")
         print(f"    repr: {text!r}")
         print()
 

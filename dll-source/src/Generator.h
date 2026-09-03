@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <string>
 #include <vector>
 
 namespace BioForge
@@ -14,7 +15,17 @@ namespace BioForge
             int inFlight{};
             int queued{};
 
-            [[nodiscard]] bool Busy() const { return inFlight > 0 || queued > 0; }
+            // Candidates held back until the region digest they were promised
+            // arrives. They are not jobs yet: job assembly reads game data, so
+            // it has to wait for Tick() on the UI thread.
+            int pending{};
+
+            std::string pendingRegion;
+
+            [[nodiscard]] bool Busy() const
+            {
+                return inFlight > 0 || queued > 0 || pending > 0;
+            }
         };
 
         // Queue one NPC for bio generation through SkyrimNet's configured LLM.
@@ -33,14 +44,27 @@ namespace BioForge
         // how many were queued - anything skipped failed to build a job and is
         // already logged. Call from the main thread: jobs read game data as
         // they are built.
+        //
+        // Returns 0 having queued nothing when the batch is DEFERRED: no region
+        // digest is cached for this settlement and digest.autoBuild is on, so
+        // the candidates are held and Tick() queues them once it arrives.
+        // GetProgress().pending reports that wait.
         std::size_t GenerateAll(const std::vector<Candidate>& a_candidates,
                                 const std::vector<Candidate>& a_roster = {});
 
         // For the UI: how much work is outstanding.
         Progress GetProgress();
 
-        // Drop everything not yet dispatched. In-flight requests cannot be
-        // recalled - they will finish and stage normally.
+        // Drop everything not yet dispatched, a batch waiting on a digest
+        // included. In-flight requests cannot be recalled - they will finish
+        // and stage normally.
         void CancelQueued();
+
+        // Release a batch that was waiting on its region digest. Cheap when
+        // nothing is pending; call it once per frame from the UI, which is the
+        // only main-thread pump this plugin has. The consequence is that a
+        // deferred batch only advances while the panel is open - acceptable,
+        // since that is where you press the button and watch it run.
+        void Tick();
     }
 }

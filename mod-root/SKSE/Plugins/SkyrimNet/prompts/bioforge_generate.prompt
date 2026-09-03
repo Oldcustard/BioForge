@@ -6,8 +6,13 @@
    Context injected by the DLL:
      actorUUID      (NUMBER)  the actor to write about - REQUIRED
      sourcePlugin   (string)  plugin defining the base record, may be ""
+     localActors    (string)  bullet lines: everyone else the scan found in
+                              this same place, may be ""
      relatedActors  (string)  JSON from PublicGetRelatedActors, may be ""
      worldKnowledge (string)  JSON from PublicGetWorldKnowledgeForActor, may be ""
+     regionDigest   (string)  bullet lines: who holds power and trade in this
+                              settlement, from bioforge_region_digest. Written
+                              once per settlement and reused, so it may be ""
 
    ROLE MARKERS ARE MANDATORY. SkyrimNet splits a rendered prompt into chat
    messages on "[ system ]" / "[ user ]" lines. Without them the messages array
@@ -221,7 +226,26 @@ generic one.
 {% else %}(no description available)
 {% endif %}
 
-## Their own dialogue
+{% if length(regionDigest) > 0 %}## Who matters around here
+{# Built once for this settlement by bioforge_region_digest and reused by every bio
+   generated here, because deciding WHICH locals an ordinary person would know is a
+   judgement about those locals rather than a lookup - and the mechanical signals
+   that would answer it are empty for most mod-added NPCs. #}
+{{ regionDigest }}
+This is the local landscape of power, trade and property, not a cast list for this
+person. Use it to ground `relationships` and `occupation` in real local names instead
+of "the customers" or "the locals" - but only where this NPC's own evidence actually
+reaches. A Riften barmaid plausibly pays a cut to whoever runs her inn; she does not
+plausibly have dealings with everyone on this list.
+Seed PUBLIC, ONE-DIRECTIONAL ties only: who they buy from, who takes their money, who
+they keep clear of, who they answer to. Never a mutual bond, a shared history, a feud
+or a romance - the other person has their own profile and will not corroborate it.
+Do NOT let a famous name take the profile over. If the most powerful figure here would
+be a distant fact of life to this person rather than an acquaintance, write them that
+way, or leave them out. The profile is about the ordinary person, not about who they
+have heard of.
+
+{% endif %}## Their own dialogue
 {# THE most important evidence: what this character actually says, as authored by
    whoever made them. A long tree means a written character; a couple of vendor
    lines means the mod author never wrote one. #}
