@@ -166,12 +166,62 @@ def main():
     # a single bio, for a tenth of the text to scan - and locals naming locals
     # is arguably the truer signal of who matters here. RegionDigest.cpp does
     # exactly this; keep the two in step.
+    #
+    # The needle is the GIVEN name when that is distinctive, else the full
+    # display name. Full names carry epithets the corpus never writes back:
+    # nobody says "Balgruuf The Greater", they say "Balgruuf" - counted on the
+    # full string the jarl of Whiterun scored zero citations and ranked 63rd
+    # while every small-hold jarl ranked 1st. A given name is distinctive when
+    #   - it is 5+ characters (kills "Jarl", "Old", "The", "Big"...)
+    #   - it is not a title, descriptor or template word that stems start with
+    #     ("Brother", "Captain", "Generic") - those occur in prose as common
+    #     nouns, and template stems like "whiterun_guard_generic" would
+    #     otherwise ride the word "generic" to the top of the town
+    #   - it is not a PLACE: a "Morthal Guard Generic" citing on "Morthal"
+    #     counts every mention of the town, and a place-named stem is never
+    #     citing a person (settlements + holds, single-word compare)
+    #   - no OTHER candidate claims it: "Maven S Bodyguard" must not inherit
+    #     Maven Black-Briar's citations
+    # Title-prefixed names then resolve to the name under the title: "Jarl
+    # Ulfric Stormcloak" cites on "Ulfric". Counting stays case-SENSITIVE:
+    # names are always capitalised in prose, and case-insensitivity was
+    # matching every lowercase common noun ("a dockworker unloaded...").
+    AMBIGUOUS_GIVEN = {
+        "acolyte", "agent", "ambassador", "apprentice", "assassin", "bandit",
+        "blood", "brother", "captain", "chief", "college", "commander",
+        "company", "conjurer", "deceased", "drunk", "elder", "enchanter",
+        "empire", "fellow", "female", "first", "forsworn", "general",
+        "generic", "groundskeeper", "guard", "guardsman", "hunter",
+        "housecarl", "imperial", "keeper", "lady", "legate", "lieutenant",
+        "lord", "master", "mistress", "mother", "father", "necromancer",
+        "nord", "novice", "player", "priest", "priestess", "saint", "servant",
+        "sister", "silver", "steward", "storm", "stormcloak", "thane",
+        "thief", "thalmor", "traveling", "vampire", "visiting", "warden",
+        "white", "witch", "wounded", "young",
+    }
+    PLACES = {s.lower() for s in SETTLEMENTS}
+    PLACES |= {"haafingar", "eastmarch", "hjaalmarch", "winterhold"}
+    distinct = {c["d"]["name"].lower() for c in cands}
+    pool = [n.split()[0] for n in distinct if " " in n]
+    pool += [n for n in distinct if " " not in n]
+    shared = {t for t in pool if pool.count(t) > 1}
+
+    def needle_for(name):
+        parts = name.split()
+        if len(parts) == 1:
+            return name if len(name) >= 5 else None
+        for t in parts:
+            if len(t) >= 5 and t.lower() not in AMBIGUOUS_GIVEN \
+               and t.lower() not in PLACES and t.lower() not in shared:
+                return t
+        return name
+
     ties = "\n".join(c["d"]["rel"] for c in cands)
     for c in cands:
-        n = c["d"]["name"]
-        if " " in n or len(n) >= 5:
-            c["cites"] = max(0, count_whole_word(ties, n)
-                             - count_whole_word(c["d"]["rel"], n))
+        needle = needle_for(c["d"]["name"])
+        if needle:
+            c["cites"] = max(0, count_whole_word(ties, needle)
+                             - count_whole_word(c["d"]["rel"], needle))
         bonus = CITE_WEIGHT * min(c["cites"], CITE_CAP)
         if bonus:
             c["why"].append("cites=%d+%d" % (c["cites"], bonus))

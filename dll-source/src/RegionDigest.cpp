@@ -85,6 +85,32 @@ namespace BioForge::RegionDigest
             "Raven Rock"sv, "Darkwater Crossing"sv, "Old Hroldan"sv
         };
 
+        // Tokens a bio stem can START with that are never a given name:
+        // titles, kinship, and the template words SkyrimNet's own generic
+        // packs use ("whiterun_guard_generic"). Used to reject a citation
+        // needle - counting these would match the common noun in prose, and
+        // "Generic" alone put a template guard at the top of Whiterun.
+        // Lowercase on purpose; compared against a lowercased token. Grow it
+        // from tools/rank_probe.py when a corpus produces a new junk stem -
+        // the failure mode is an inflated-but-capped rank, which is
+        // inspectable in the sheet.
+        constexpr std::string_view kAmbiguousGiven[] = {
+            "acolyte"sv, "agent"sv, "ambassador"sv, "apprentice"sv,
+            "assassin"sv, "bandit"sv, "blood"sv, "brother"sv, "captain"sv,
+            "chief"sv, "college"sv, "commander"sv, "company"sv, "conjurer"sv,
+            "deceased"sv, "drunk"sv, "elder"sv, "enchanter"sv, "empire"sv,
+            "fellow"sv, "female"sv, "first"sv, "forsworn"sv, "general"sv,
+            "generic"sv, "groundskeeper"sv, "guard"sv, "guardsman"sv,
+            "hunter"sv, "housecarl"sv, "imperial"sv, "keeper"sv, "lady"sv,
+            "legate"sv, "lieutenant"sv, "lord"sv, "master"sv, "mistress"sv,
+            "mother"sv, "father"sv, "necromancer"sv, "nord"sv, "novice"sv,
+            "player"sv, "priest"sv, "priestess"sv, "saint"sv, "servant"sv,
+            "sister"sv, "silver"sv, "steward"sv, "storm"sv, "stormcloak"sv,
+            "thane"sv, "thief"sv, "thalmor"sv, "traveling"sv, "vampire"sv,
+            "visiting"sv, "warden"sv, "white"sv, "witch"sv, "wounded"sv,
+            "young"sv
+        };
+
         std::mutex                                      g_mutex;
         std::map<std::string, std::string, std::less<>> g_cache;
         std::atomic<bool>                               g_building{ false };
@@ -138,6 +164,20 @@ namespace BioForge::RegionDigest
                            ? static_cast<char>(c - 'a' + 'A')
                            : c;
                 capitalise = (c == ' ' || c == '-');
+            }
+            return out;
+        }
+
+        // ASCII fold, same reasoning as NameFromStem's uppercasing: stems are
+        // built from [a-z0-9_-], so there is nothing locale-shaped to fold.
+        std::string ToLower(std::string_view a_text)
+        {
+            std::string out;
+            out.reserve(a_text.size());
+            for (const char ch : a_text) {
+                out += (ch >= 'A' && ch <= 'Z')
+                           ? static_cast<char>(ch - 'A' + 'a')
+                           : ch;
             }
             return out;
         }
@@ -409,13 +449,108 @@ namespace BioForge::RegionDigest
                 ties += bio.ties;
                 ties += '\n';
             }
+
+            // Citations count the GIVEN name when it is distinctive, else the
+            // full display name. Full names carry epithets the corpus never
+            // writes back: nobody says "Balgruuf The Greater", they say
+            // "Balgruuf", so on the full string the jarl of Whiterun scored
+            // zero citations and ranked 63rd while every small-hold jarl
+            // ranked 1st. Distinctive means 5+ characters (kills "Jarl",
+            // "Old", "The"), not a title or template word, not a place (a
+            // "Morthal Guard Generic" citing on "Morthal" counts the town),
+            // and not claimed by another candidate - "Maven S Bodyguard"
+            // must not inherit Maven Black-Briar's citations. Title-prefixed
+            // names then resolve to the name under the title: "Jarl Ulfric
+            // Stormcloak" cites on "Ulfric". Case-sensitive on purpose:
+            // names are always capitalised in prose, and folding case matched
+            // every lowercase common noun. Tuned in tools/rank_probe.py.
+            std::vector<std::string> tokenPool;
+            {
+                std::vector<std::string> distinct;
+                distinct.reserve(scored.size());
+                for (const auto& bio : scored) {
+                    distinct.push_back(ToLower(bio.name));
+                }
+                std::sort(distinct.begin(), distinct.end());
+                distinct.erase(std::unique(distinct.begin(), distinct.end()),
+                               distinct.end());
+                for (const auto& name : distinct) {
+                    const auto space = name.find(' ');
+                    tokenPool.push_back(space == std::string::npos
+                                            ? name
+                                            : name.substr(0, space));
+                }
+            }
+            auto isStop = [](std::string_view a_token) {
+                for (const auto& stop : kAmbiguousGiven) {
+                    if (stop == a_token) {
+                        return true;
+                    }
+                }
+                return false;
+            };
+            auto isPlace = [&a_region](std::string_view a_token) {
+                if (a_token == ToLower(a_region.name) ||
+                    a_token == ToLower(a_region.hold)) {
+                    return true;
+                }
+                for (const auto& place : kSettlements) {
+                    if (a_token == ToLower(place)) {
+                        return true;
+                    }
+                }
+                // Holds whose names are not themselves settlements.
+                return a_token == "haafingar"sv || a_token == "eastmarch"sv ||
+                       a_token == "hjaalmarch"sv;
+            };
+            auto isShared = [&tokenPool](std::string_view a_token) {
+                bool seen = false;
+                for (const auto& t : tokenPool) {
+                    if (t == a_token) {
+                        if (seen) {
+                            return true;
+                        }
+                        seen = true;
+                    }
+                }
+                return false;
+            };
+
             for (auto& bio : scored) {
                 // Short single names match too much to count honestly.
-                if (bio.name.size() < 5 && bio.name.find(' ') == std::string::npos) {
+                const bool single = bio.name.find(' ') == std::string::npos;
+                if (single && bio.name.size() < 5) {
                     continue;
                 }
-                const auto total = CountWholeWord(ties, bio.name);
-                const auto own   = CountWholeWord(bio.ties, bio.name);
+
+                // First token that is distinctive enough to cite on.
+                std::string needle;
+                std::size_t pos = 0;
+                while (!single && pos <= bio.name.size()) {
+                    const auto end = bio.name.find(' ', pos);
+                    const auto token =
+                        std::string_view{ bio.name }.substr(
+                            pos, end == std::string::npos
+                                     ? std::string_view::npos
+                                     : end - pos);
+                    if (token.size() >= 5) {
+                        const auto lower = ToLower(token);
+                        if (!isStop(lower) && !isPlace(lower) && !isShared(lower)) {
+                            needle.assign(token);
+                            break;
+                        }
+                    }
+                    if (end == std::string::npos) {
+                        break;
+                    }
+                    pos = end + 1;
+                }
+                if (needle.empty()) {
+                    needle = bio.name;   // no distinctive token: cite on the whole
+                }
+
+                const auto total = CountWholeWord(ties, needle);
+                const auto own   = CountWholeWord(bio.ties, needle);
                 bio.cites        = static_cast<int>(total > own ? total - own : 0);
                 bio.score += kCiteWeight * (std::min)(bio.cites, kCiteCap);
             }
