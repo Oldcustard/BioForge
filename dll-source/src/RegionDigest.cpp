@@ -214,6 +214,33 @@ namespace BioForge::RegionDigest
             return count;
         }
 
+        // Occurrences of a_needle as a WHOLE WORD. Plain substring counting is
+        // badly wrong for citations: the name "White" appears 264 times in a
+        // 3,200-bio corpus, but 220 of those are "Whiterun" and 25 are
+        // "Whitemane" - only 19 are the person. Left uncorrected that inflated
+        // a generic NPC to the second most important character in Whiterun.
+        std::size_t CountWholeWord(std::string_view a_haystack, std::string_view a_needle)
+        {
+            if (a_needle.empty()) {
+                return 0;
+            }
+            std::size_t count = 0;
+            for (auto pos = a_haystack.find(a_needle); pos != std::string_view::npos;
+                 pos      = a_haystack.find(a_needle, pos + a_needle.size())) {
+                const bool leftClear =
+                    pos == 0 ||
+                    std::isalnum(static_cast<unsigned char>(a_haystack[pos - 1])) == 0;
+                const auto after = pos + a_needle.size();
+                const bool rightClear =
+                    after >= a_haystack.size() ||
+                    std::isalnum(static_cast<unsigned char>(a_haystack[after])) == 0;
+                if (leftClear && rightClear) {
+                    ++count;
+                }
+            }
+            return count;
+        }
+
         struct ScoredBio
         {
             int         score{};
@@ -387,8 +414,8 @@ namespace BioForge::RegionDigest
                 if (bio.name.size() < 5 && bio.name.find(' ') == std::string::npos) {
                     continue;
                 }
-                const auto total = CountOccurrences(ties, bio.name);
-                const auto own   = CountOccurrences(bio.ties, bio.name);
+                const auto total = CountWholeWord(ties, bio.name);
+                const auto own   = CountWholeWord(bio.ties, bio.name);
                 bio.cites        = static_cast<int>(total > own ? total - own : 0);
                 bio.score += kCiteWeight * (std::min)(bio.cites, kCiteCap);
             }

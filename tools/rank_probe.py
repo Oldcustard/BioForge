@@ -45,6 +45,17 @@ SETTLEMENTS = ["Whiterun", "Solitude", "Markarth", "Windhelm", "Dawnstar",
 BLOCK = re.compile(r"\{%\s*block\s+(\w+)\s*%\}([\s\S]*?)\{%\s*endblock")
 
 
+def count_whole_word(haystack, needle):
+    """Citations must match whole words. Plain substring counting says the name
+    "White" occurs 264 times in this corpus; 220 of those are "Whiterun" and 25
+    are "Whitemane", and only 19 are the person. RegionDigest.cpp does the same.
+    """
+    if not needle:
+        return 0
+    return len(re.findall(r"(?<![0-9A-Za-z])" + re.escape(needle) + r"(?![0-9A-Za-z])",
+                          haystack))
+
+
 def name_from_stem(stem):
     u = stem.rfind("_")
     if u != -1 and len(stem) - u <= 5:
@@ -159,7 +170,8 @@ def main():
     for c in cands:
         n = c["d"]["name"]
         if " " in n or len(n) >= 5:
-            c["cites"] = max(0, ties.count(n) - c["d"]["rel"].count(n))
+            c["cites"] = max(0, count_whole_word(ties, n)
+                             - count_whole_word(c["d"]["rel"], n))
         bonus = CITE_WEIGHT * min(c["cites"], CITE_CAP)
         if bonus:
             c["why"].append("cites=%d+%d" % (c["cites"], bonus))
