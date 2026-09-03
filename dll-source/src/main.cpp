@@ -2,6 +2,7 @@
 
 #include "Config.h"
 #include "SkyrimNetAPI.h"
+#include "StagingStore.h"
 #include "UI.h"
 
 namespace
@@ -35,6 +36,10 @@ namespace
         }
 
         BioForge::Config::Load();
+
+        // Staging is per-session scratch. Anything left uncommitted last time is
+        // not in use by anything, so it goes rather than accumulating.
+        BioForge::Staging::ClearStaged();
     }
 }
 
