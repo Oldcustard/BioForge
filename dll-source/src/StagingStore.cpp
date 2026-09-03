@@ -419,12 +419,35 @@ namespace BioForge::Staging
                         ch = ' ';
                     }
                 }
-                const auto stop = summary.find(". ");
-                if (stop != std::string::npos) {
-                    summary.resize(stop + 1);
+                // TWO sentences, not one. A first sentence is very often pure
+                // scene-setting - "Haknir is a Nord man presently at Mara's
+                // Embrace, the brothel beside Honeyside" places him and says
+                // nothing about who he is - and a neighbour handed only that
+                // can say nothing useful in return. The role usually lands in
+                // the second. Compare the sibling written the same minute:
+                // "Phoenia is a Breton courtesan working at Mara's Embrace"
+                // carries her trade in sentence one, and her ties came out
+                // specific where his came out hedged.
+                //
+                // Still capped: this rides along on every job in the batch.
+                std::size_t cut       = std::string::npos;
+                std::size_t searchPos = 0;
+                for (int sentence = 0; sentence < 2; ++sentence) {
+                    const auto stop = summary.find(". ", searchPos);
+                    if (stop == std::string::npos) {
+                        break;   // no more sentence breaks; keep what we have
+                    }
+                    cut       = stop + 1;
+                    searchPos = stop + 2;
+                    if (cut >= 200) {
+                        break;   // already long enough to be worth something
+                    }
                 }
-                if (summary.size() > 240) {
-                    summary.resize(240);
+                if (cut != std::string::npos) {
+                    summary.resize(cut);
+                }
+                if (summary.size() > 280) {
+                    summary.resize(280);
                 }
                 return summary;
             }
