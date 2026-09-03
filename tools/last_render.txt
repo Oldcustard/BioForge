@@ -1,0 +1,85 @@
+You are a writer for a Skyrim roleplay system. Write a character profile for one NPC,
+grounded strictly in the evidence below.
+This NPC currently has no profile, so they speak with no personality of their own. The
+profile you write will be loaded every time anyone talks to them, permanently. Write it
+as a character sheet an actor could play from, not as an encyclopedia entry.
+# Evidence
+## Identity
+- Name: Torg Strong-Arm
+- Race: Nord
+- Sex: male
+- Level: 3
+- Class: Food Vendor
+- Flagged essential (story-protected).
+- Currently at: Mara's Embrace, Hold: Riften
+## Factions
+- The Rift
+- RiftenBrothelFactionVendor
+- SLA Naked
+- SLA Arousal
+## Notable skills
+- (nothing exceptional - ordinary competence for their trade)
+## What they wear
+- Barkeeper's Shoes
+- TNG GenitalCover
+- Barkeeper's Clothes
+## Where they are
+This interior space features a rustic, Nordic architectural style characterized by heavy timber construction. Dark wooden planks form the flooring and walls, supported by thick beams and structural pillars. The layout appears to be a multi-level or partitioned living area, with a curved wooden partition separating different sections of the room. Built-in wooden shelving units are integrated into the wall structures, providing storage space within the timber framework.
+The setting serves as a domestic residence or a small inn, functioning as a place of shelter and habitation. The atmosphere is defined by warm, earthy tones from the natural wood grain and a cozy, enclosed feeling created by the low ceilings and dense woodwork.
+The location is visually distinguished by its intricate woodworking and the use of curved architectural elements that break up the linear nature of the timber beams. The combination of functional wooden cabinetry and heavy structural supports creates a sense of sturdy, traditional craftsmanship typical of Nord dwellings.
+## Their own dialogue
+Jorin Good-Hands: What have you got for sale?
+|  Torg Strong-Arm: Drink for the thirsty, food for the hungry.
+Jorin Good-Hands: Hello
+Jorin Good-Hands: DialogueGenericHello
+|  Torg Strong-Arm: Need something?
+# How to write this
+- **Ground everything in the evidence.** Their dialogue is the strongest signal: their
+vocabulary, register and preoccupations are right there. If they speak formally, say
+so. If all they have is a shop greeting, that itself tells you they are a working
+tradesperson, not a hero.
+- **Invention is allowed, but only to connect evidence.** A background that explains why
+a Redguard woman is working in a Riften tavern is good. Inventing that she is secretly
+a Thalmor agent is not - it will contradict the game.
+- **Never invent quest outcomes, secret identities, or relationships with named
+characters the evidence does not mention.** Other NPCs have their own profiles and
+will not corroborate your invention.
+- **Faction names are evidence.** A faction naming a place or trade tells you where they
+belong and what they do.
+- Write plainly and specifically. No purple prose, no fantasy-novel throat-clearing.
+- Third person, present tense.
+- If the evidence is thin, write a **short, plausible, ordinary** person. A believable
+minor character beats an invented adventurer.
+# Output format
+Output EXACTLY the ten sections below, each introduced by its `###` heading on its own
+line, in this order, with nothing before the first heading and nothing after the last
+section. No preamble, no commentary, no markdown fences.
+### summary
+Two or three sentences: who they are, what they do, where. This is read most often.
+### interject_summary
+One sentence in the form "Torg interjects when: X; Y; Z" - the specific
+subjects that would make this person speak up unprompted.
+### background
+A short paragraph of history that explains how they came to be here doing this.
+### personality
+A short paragraph: temperament, manners, what they value, what irritates them, how they
+treat strangers.
+### appearance
+Two or three sentences on how they look and carry themselves. Use their race, sex and
+what they wear. Describe only what someone in the room could see.
+### aspirations
+Three to five bullet points, each starting with "- ", of what they actually want. Keep
+them proportionate to the person.
+### relationships
+Bullet points, each starting with "- ", in the form "- Name: relationship and feeling".
+Only people, factions or gods the evidence supports. If there is nothing to go on, give
+the one or two ties their job and factions imply.
+### occupation
+One or two sentences on what they do day to day.
+### skills
+Three to six bullet points, each starting with "- ", of what they are actually good at.
+Ordinary competence is fine and usually correct.
+### speech_style
+A short paragraph on how they talk: register, accent, sentence length, verbal habits.
+If their dialogue above shows a distinctive voice, describe THAT voice specifically
+rather than a generic one.
