@@ -83,15 +83,33 @@ These are SkyrimNet's own bio blocks and its own target lengths. The finished bi
 injected into every conversation this NPC ever has, so length is a permanent running
 cost - hit the targets rather than writing long.
 
-**The Stranger Test governs `summary` and `appearance`.** Both are public-facing: they
-may hold ONLY what someone meeting this person for the first time, with no introduction,
-would either see directly or already know from public reputation. Private history,
-hidden motives, inner feeling and secrets belong in `background`, `personality` or
-`aspirations` - never in those two.
+Two rules govern `summary` and `appearance`, the two public-facing blocks. Both apply
+to BOTH blocks.
+
+**The Stranger Test.** They may hold ONLY what someone meeting this person for the first
+time, with no introduction, would either see directly or already know from public
+reputation. Private history, hidden motives, inner feeling and secrets belong in
+`background`, `personality` or `aspirations` - never in those two.
+
+**Never name worn equipment.** No garments, no jewellery, no weapons, no armour, no
+inventory - not in `appearance`, and not in `summary` either. SkyrimNet renders live worn
+equipment separately on every single turn, so anything named here is both duplicated and
+wrong the moment they change clothes. "She wears an amulet of Dibella" fails the rule;
+"she wears her devotion openly" passes it. "His hair is cropped short under his helmet"
+fails; "his hair is cropped short" passes. Read the clothing evidence to judge their
+station and trade, then describe the PERSON. The test is whether the sentence survives
+them changing clothes.
 
 ### summary
-75-100 words: who they are, what they do, where. This is the block read most often.
-Stranger Test applies.
+75-100 words: who they are, what they do, where. This is the block read most often, so
+it is the worst place to be wrong. Both rules above apply: nothing a stranger could not
+know, and no worn item named.
+
+Lead with what they ARE. Someone reading only your first sentence should learn this
+person's trade or standing, not just the room they are standing in - "Gudra is a Nord
+courtesan at Mara's Embrace" tells a reader something; "Gudra is a Nord woman at Mara's
+Embrace, a small house fitted out like a cozy parlor" tells them almost nothing about
+her. Their own neighbours' profiles are built from this sentence.
 
 ### interject_summary
 50-100 words, phrased as "NAME interjects when: X; Y; Z" - the specific subjects that
@@ -108,16 +126,12 @@ treat strangers. Their inner life belongs here.
 ### appearance
 75-125 words on DURABLE, VISIBLE characteristics: build, height, colouring, hair,
 posture, bearing, apparent age, visible scars, and the general STYLE of their dress
-(plain and practical, well-off, shabby, uniformed). Stranger Test applies.
-**Do NOT name what they are wearing.** No garments, no jewellery, no weapons, no
-inventory. SkyrimNet renders live worn equipment separately on every single turn, so
-anything named here is both duplicated and wrong the moment they change clothes. Read
-the clothing evidence to judge their station and trade, then describe the person rather
-than the outfit. Give the IMPRESSION, never the item name - the test is whether the
-sentence survives them changing clothes. Naming a garment, a ring, an amulet or a weapon
-fails it; conveying that someone dresses richly, carelessly, or for display passes.
-Write that impression in your OWN words, chosen for this particular person: do not reach
-for a stock phrase, and never reuse wording from another character's profile.
+(plain and practical, well-off, shabby, uniformed). Both rules above apply.
+
+Give the IMPRESSION, never the item name: conveying that someone dresses richly,
+carelessly, or for display passes; naming the garment, the ring, the amulet or the blade
+does not. Write that impression in your OWN words, chosen for this particular person: do
+not reach for a stock phrase, and never reuse wording from another character's profile.
 
 ### aspirations
 75-125 words as bullet points, each starting with "- ", of what they actually want. Keep
