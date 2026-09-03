@@ -43,6 +43,16 @@ namespace BioForge::Config
         // call per affected NPC, and only for those that actually gained a
         // known neighbour.
         bool refinePass = true;
+
+        // Ask SkyrimNet to rebuild its template path cache after a commit.
+        //
+        // It is NOT settled that this is needed: SkyrimNet falls back to direct
+        // path resolution on a cache miss, and a bio committed from inside the
+        // game process sits exactly where that fallback looks. The reload is
+        // not free either - it rebuilds a ~7,200 entry path cache and discards
+        // inja's compiled template storage. Turn this off to find out, or to
+        // keep it off if it turns out to be unnecessary.
+        bool reloadPrompts = true;
     };
 
     // Reads SkyrimNet's config store for this plugin, falling back to the

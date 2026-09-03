@@ -2,6 +2,7 @@
 
 #include "StagingStore.h"
 
+#include "Config.h"
 #include "PromptReload.h"
 #include "ScopeSelector.h"
 
@@ -648,7 +649,11 @@ namespace BioForge::Staging
         // its whole prompt tree, which is seconds on a large corpus, and Commit
         // runs on the UI thread - waiting for it froze the game on every press.
         // Scheduling also collapses a run of commits into a single rescan.
-        PromptReload::Schedule();
+        if (Config::Get().reloadPrompts) {
+            PromptReload::Schedule();
+        } else {
+            logs::info("commit: prompt reload suppressed by commit.reloadPrompts"sv);
+        }
 
         {
             std::lock_guard lock{ g_mutex };
