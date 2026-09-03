@@ -6,8 +6,28 @@ they document the heading-drop rule that still governs every edit to these
 templates. The D cases cover the regional digest section.
 
 `live_generate` / `live_digest` render the SHIPPED template files by name
-rather than a synthetic snippet, which is the check that actually matters
-before a release.
+rather than a synthetic snippet.
+
+!! THIS ENDPOINT DOES NOT BIND DLL-INJECTED CONTEXT VARIABLES !!
+
+Passing regionDigest / localActors / sourcePlugin in the payload does nothing:
+`{{ sourcePlugin }}` comes back as the literal tag and `{{ length(x) }}` as 0,
+in BOTH content= and templateName= mode. So every `{% if length(...) %}`
+section that depends on injected context renders as ABSENT here, whatever you
+pass. That is a property of the preview, not a bug in the template - it cost a
+real debugging detour once already.
+
+The D_ cases below are therefore only good for the ABSENT half: they prove a
+section vanishes without swallowing the heading after it. They CANNOT prove the
+present half.
+
+To verify a section actually rendered in production, grep SkyrimNet's own log,
+which records rendered prompts:
+
+    grep -c "## Who matters around here" \
+        "<Documents>/My Games/Skyrim Special Edition/SKSE/SkyrimNet.log"
+
+A count of 0 next to a non-zero count for a sibling section is the real signal.
 
 Usage: python render_probe.py [case ...]   (default: all cases)
 """
@@ -105,10 +125,10 @@ CASES = {
         SETUP + FACTIONS_BLOCK + "\n## Notable skills\n" + MULTILINE_COMMENT
         + skill_chain(14, plain_body=True) + "\n## After\nZ\n"
     ),
-    # D-series: the regional digest section, present and absent. Absent is the
-    # one that can go wrong - the section must vanish WITHOUT taking the
-    # heading that follows it.
-    "D_digest_present": (DIGEST_BLOCK, {"regionDigest": SAMPLE_DIGEST}),
+    # D-series: the regional digest section must vanish WITHOUT taking the
+    # heading that follows it. Only the absent case is meaningful here - see the
+    # module docstring: injected variables do not bind in the preview, so
+    # D_digest_present renders absent too and proves nothing.
     "D_digest_absent": (DIGEST_BLOCK, {"regionDigest": ""}),
 }
 
@@ -188,9 +208,10 @@ def main():
         headings = [ln for ln in text.splitlines() if ln.startswith("#")]
         print(f"    headings: {headings}")
         if name.startswith("D_") or name == "live_generate":
-            # The heading below the digest must survive either way.
-            print(f"    digest_heading={'## Who matters around here' in text} "
-                  f"next_heading={'## Their own dialogue' in text}")
+            # Only next_heading is meaningful: digest_heading is always False
+            # here because the preview does not bind injected variables.
+            print(f"    next_heading={'## Their own dialogue' in text}"
+                  f"   (digest_heading not testable via preview)")
         print(f"    repr: {text!r}")
         print()
 
