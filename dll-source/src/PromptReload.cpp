@@ -5,8 +5,13 @@
 
 #include <winhttp.h>
 
+#include <atomic>
+#include <chrono>
+#include <condition_variable>
 #include <cstdlib>
 #include <fstream>
+#include <mutex>
+#include <thread>
 
 #pragma comment(lib, "winhttp.lib")
 
@@ -53,8 +58,66 @@ namespace
     }
 }
 
+namespace
+{
+    // Coalescing state for Schedule(). One worker at a time; it waits for a
+    // quiet gap before reloading, so a run of commits collapses into one.
+    std::mutex g_mutex;
+    bool       g_pending = false;
+    bool       g_running = false;
+
+    // Long enough to swallow a player clicking Commit down a list, short
+    // enough that a single commit goes live while they are still looking at it.
+    constexpr auto kQuietPeriod = std::chrono::milliseconds{ 750 };
+}
+
 namespace BioForge::PromptReload
 {
+    void Schedule()
+    {
+        {
+            std::lock_guard lock{ g_mutex };
+            g_pending = true;
+            if (g_running) {
+                return;   // the worker will pick this up
+            }
+            g_running = true;
+        }
+
+        // Detached: this is pure WinHTTP and a file read, no game state, and
+        // Skyrim has no reliable shutdown hook to join against. If the process
+        // dies mid-request the OS tears the thread down with it.
+        std::thread([] {
+            for (;;) {
+                // Wait for things to go quiet - each new request restarts the
+                // clock, so a burst of commits produces exactly one reload.
+                for (;;) {
+                    {
+                        std::lock_guard lock{ g_mutex };
+                        if (!g_pending) {
+                            break;
+                        }
+                        g_pending = false;
+                    }
+                    std::this_thread::sleep_for(kQuietPeriod);
+                }
+
+                const auto error = Request();
+                if (error.empty()) {
+                    logs::info("commit: SkyrimNet reloaded its prompt cache"sv);
+                } else {
+                    logs::warn("commit: prompt cache not reloaded - {}"sv, error);
+                }
+
+                std::lock_guard lock{ g_mutex };
+                if (!g_pending) {
+                    g_running = false;
+                    return;
+                }
+            }
+        }).detach();
+    }
+
     std::string Request()
     {
         bool       enabled = true;

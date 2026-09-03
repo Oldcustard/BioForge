@@ -644,11 +644,11 @@ namespace BioForge::Staging
         a_note = "committed " + target.string();
 
         // New .prompt files are invisible to SkyrimNet's path cache until a
-        // reload - best-effort, and honestly reported when unreachable.
-        const auto reload = PromptReload::Request();
-        if (!reload.empty()) {
-            a_note += " (prompt cache not reloaded: " + reload + ")";
-        }
+        // reload. SCHEDULED, never awaited: the reload makes SkyrimNet rescan
+        // its whole prompt tree, which is seconds on a large corpus, and Commit
+        // runs on the UI thread - waiting for it froze the game on every press.
+        // Scheduling also collapses a run of commits into a single rescan.
+        PromptReload::Schedule();
 
         {
             std::lock_guard lock{ g_mutex };
