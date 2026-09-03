@@ -39,6 +39,7 @@ add_commonlibsse_plugin(${PROJECT_NAME}
         dll-source/src/SkyrimNetAPI.cpp
         dll-source/src/Config.cpp
         dll-source/src/ScopeSelector.cpp
+        dll-source/src/Generator.cpp
         dll-source/src/StagingStore.cpp
         dll-source/src/PromptReload.cpp
         dll-source/src/UI.cpp)

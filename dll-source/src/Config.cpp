@@ -24,6 +24,19 @@ namespace BioForge::Config
             }
         }
 
+        int ReadInt(const char* a_path, int a_fallback)
+        {
+            const auto raw = SN::PluginConfigValue("BioForge", a_path, "");
+            if (raw.empty()) {
+                return a_fallback;
+            }
+            try {
+                return std::stoi(raw);
+            } catch (...) {
+                return a_fallback;
+            }
+        }
+
         bool ReadBool(const char* a_path, bool a_fallback)
         {
             auto raw = SN::PluginConfigValue("BioForge", a_path, "");
@@ -50,9 +63,12 @@ namespace BioForge::Config
         g_settings.uniqueOnly  = ReadBool("scan.uniqueOnly", defaults.uniqueOnly);
         g_settings.includeDead = ReadBool("scan.includeDead", defaults.includeDead);
 
-        logs::info("config: radius={:.0f} cellOnly={} uniqueOnly={} includeDead={}"sv,
+        g_settings.maxConcurrent =
+            std::clamp(ReadInt("generate.maxConcurrent", defaults.maxConcurrent), 1, 8);
+
+        logs::info("config: radius={:.0f} cellOnly={} uniqueOnly={} includeDead={} maxConcurrent={}"sv,
                    g_settings.scanRadius, g_settings.cellOnly,
-                   g_settings.uniqueOnly, g_settings.includeDead);
+                   g_settings.uniqueOnly, g_settings.includeDead, g_settings.maxConcurrent);
     }
 
     const Settings& Get() { return g_settings; }

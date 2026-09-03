@@ -18,6 +18,7 @@ namespace BioForge
         std::string   bioTemplate;      // as SkyrimNet resolves it; "" means none
         bool          bioFileExists{};
         bool          isUnique{};
+        bool          isFollower{};   // travelling with the player: present by accident
         float         distance{};
 
         // A gap is an NPC SkyrimNet has no usable bio file for.

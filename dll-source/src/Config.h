@@ -17,6 +17,12 @@ namespace BioForge::Config
         bool uniqueOnly = true;
 
         bool includeDead = false;
+
+        // How many bio generations may be in flight at once. A batch over a
+        // busy cell is otherwise a burst of simultaneous LLM calls, which is
+        // the fastest way to meet a provider's rate limit. Two keeps the queue
+        // moving without looking like an attack.
+        int maxConcurrent = 2;
     };
 
     // Reads SkyrimNet's config store for this plugin, falling back to the

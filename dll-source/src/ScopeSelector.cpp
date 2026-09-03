@@ -92,6 +92,7 @@ namespace BioForge
             c.race         = base->GetRace() ? base->GetRace()->GetFormEditorID() : "";
             c.sourcePlugin = SourcePluginOf(base);
             c.isUnique     = base->IsUnique();
+            c.isFollower   = actor->IsPlayerTeammate();
             c.distance     = player->GetPosition().GetDistance(a_ref->GetPosition());
             c.bioTemplate  = SN::BioTemplateName(c.refFormID);
             c.bioFileExists = BioFileExists(c.bioTemplate);

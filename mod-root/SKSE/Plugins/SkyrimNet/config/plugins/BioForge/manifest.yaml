@@ -3,25 +3,23 @@
 # SkyrimNet auto-discovers plugin folders under
 # `Data/SKSE/Plugins/SkyrimNet/config/plugins/<plugin>/` and ingests this file.
 #
-#   1. `variants:` declares named LLM-config profiles. Bio Forge calls
-#      SendCustomPromptToLLM(promptName, variant, ctx, cb) with the variant
-#      below, so the user picks the model in SkyrimNet's own UI and Bio Forge
-#      never handles an API key. With no variant entry the call silently falls
-#      back to SkyrimNet's default Dialogue LLM.
+#   `schema.fields:` declares the settings SkyrimNet shows in its in-game UI.
+#   The `path:` values here are exactly what the DLL reads through
+#   PublicGetPluginConfigValue("BioForge", <path>, <default>) — keep them in
+#   sync with Config.cpp.
 #
-#   2. `schema.fields:` declares the settings SkyrimNet shows in its in-game UI.
-#      The `path:` values here are exactly what the DLL reads through
-#      PublicGetPluginConfigValue("BioForge", <path>, <default>) — keep them in
-#      sync with Config.cpp.
+# NOTE: deliberately no `variants:` block. Bio Forge dispatches on SkyrimNet's
+# own `CharacterProfileGeneration` variant — the one already configured for
+# writing character profiles — so the user picks a model in one place instead of
+# configuring a second, near-identical profile for us. It also inherits that
+# variant's tuning (full model, 10k max_tokens, temperature 0.7); a plugin's own
+# fresh variant inherits the dialogue defaults instead, which are a flash model
+# on a 4k cap. Bio Forge never handles an API key either way.
 
 plugin:
   name: BioForge
   version: "0.1.0"
   description: "Writes SkyrimNet character bios for mod-added NPCs that have none, from the characterisation their own mod already authored — dialogue, factions, outfit, location."
-
-variants:
-  - name: bioforge_generate
-    description: "The bio writer — produces a full ten-block character profile from an NPC's available dialogue tree and record data. This is long-form creative prose against a large context and it is not latency-critical (it runs as an explicit batch, never mid-conversation), so it rewards a capable model rather than a cheap one. Quality here is permanent: a bio is written once and then shapes every conversation that NPC ever has."
 
 schema:
   fields:
@@ -61,52 +59,12 @@ schema:
       defaultValue: false
       category: "Scan"
 
-    # ---- LLM overrides ----------------------------------------------------
-    # All optional. Empty / 0 = inherit from the base SkyrimNet LLM config.
-    - name: "API Endpoint"
-      path: "llm.endpoint"
-      type: "string"
-      description: "Custom API endpoint URL for bio generation. Leave empty to use the base endpoint."
-      defaultValue: ""
-      category: "LLM Overrides"
-
-    - name: "API Key"
-      path: "llm.api_key"
-      type: "string"
-      description: "API key for the custom endpoint above. Leave empty to use the base API key."
-      defaultValue: ""
-      category: "LLM Overrides"
-
-    - name: "Model Name"
-      path: "llm.model_name"
-      type: "string"
-      description: "Override model for bio generation. Leave empty to use the same model as dialogue."
-      defaultValue: ""
-      category: "LLM Overrides"
-
-    - name: "Temperature"
-      path: "llm.temperature"
-      type: "float"
-      description: "Override sampling temperature. Bios are creative prose and tolerate a moderate temperature. Set to 0 to inherit the base config value."
-      defaultValue: 0
-      min: 0.0
-      max: 2.0
-      category: "LLM Overrides"
-
-    - name: "Max Tokens"
-      path: "llm.max_tokens"
+    # ---- Generation --------------------------------------------------------
+    - name: "Concurrent Generations"
+      path: "generate.maxConcurrent"
       type: "int"
-      description: "Override max response tokens. A full ten-block bio runs to roughly 4000 characters, so this needs real headroom. Set to 0 to inherit the base config value."
-      defaultValue: 0
-      min: 0
-      max: 16384
-      category: "LLM Overrides"
-
-    - name: "Request Timeout (seconds)"
-      path: "llm.timeout"
-      type: "int"
-      description: "Override request timeout in seconds. Set to 0 to inherit the base config value."
-      defaultValue: 0
-      min: 0
-      max: 600
-      category: "LLM Overrides"
+      description: "How many bios may be generated at once when running a batch. Each one is a full LLM request, so raising this speeds a large batch up but is also the quickest way to hit a provider's rate limit. Two is a safe default; lower it to 1 on a strict endpoint, raise it if you are running a local model."
+      defaultValue: 2
+      min: 1
+      max: 8
+      category: "Generation"
