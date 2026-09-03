@@ -37,14 +37,53 @@ namespace BioForge::RegionDigest
 
         // Score bands. A bio naming the settlement always outranks one that
         // only names the hold, so hold-only entries fill leftover room and can
-        // never crowd out the settlement's own cast - which is what the old
-        // explicit primary/secondary top-up did by hand.
+        // never crowd out the settlement's own cast.
+        //
+        // The tier is a LOCALNESS filter; the ranking within it is IMPORTANCE,
+        // and those are different questions. Localness was never the problem -
+        // measured on a 3,200-bio corpus, the top 120 was already 114 genuine
+        // locals and zero outsiders. The problem was that nearly all of them
+        // tied, so the cut fell alphabetically: Riften filled up around "V" and
+        // dropped the Ragged Flagon's proprietor for having a late initial.
+        // Co-citation - how often the rest of the local cast names you - sorts
+        // that out, and it is exactly the question the digest prompt asks.
         constexpr int kInSummary     = 1000;   // settlement named in the summary
         constexpr int kInBody        = 100;    // settlement named somewhere else
-        constexpr int kPerMention    = 10;     // per occurrence, capped
-        constexpr int kMaxMentions   = 5;
         constexpr int kHoldInSummary = 20;     // hold-only, named in the summary
         constexpr int kHoldInBody    = 1;      // hold-only, mentioned in passing
+
+        // Phrasing signals. Deliberately SMALL: once a bio is in the summary
+        // tier its localness is settled, so these only break ties. Weighted
+        // higher they beat real citations, which had the Ragged Flagon's
+        // bouncer losing his slot to a passer-by whose summary happened to read
+        // "in Riften" rather than "the Riften docks".
+        constexpr int kLocative = 40;   // "in/at/of Riften", "Riften's"
+        constexpr int kEarly    = 20;   // named in the first third of the summary
+
+        // Penalties DEMOTE, they never exclude. A wrongly dropped local is
+        // invisible; a wrongly kept one at least stays inspectable in the sheet.
+        constexpr int kParenPenalty      = -600;   // "(actually Svidi from Riften)"
+        constexpr int kOtherFirstPenalty = -600;   // another settlement named first
+        constexpr int kOriginPenalty     = -150;   // "from Riften", not "from Riften's"
+
+        // Citations dominate phrasing but not the tier, so a well-known local
+        // outranks an unknown one without a mod-added NPC ever being buried
+        // under vanilla characters the model already knows.
+        constexpr int kCiteWeight = 12;
+        constexpr int kCiteCap    = 60;
+
+        constexpr double kEarlyFraction = 0.35;
+
+        // For the "names somewhere else first" penalty. Vanilla only: a mod
+        // settlement simply does not trigger it, and since the signal only ever
+        // demotes, an unlisted place costs accuracy and never correctness.
+        constexpr std::string_view kSettlements[] = {
+            "Whiterun"sv, "Solitude"sv, "Markarth"sv, "Windhelm"sv, "Dawnstar"sv,
+            "Morthal"sv, "Falkreath"sv, "Winterhold"sv, "Riften"sv, "Ivarstead"sv,
+            "Rorikstead"sv, "Kynesgrove"sv, "Shor's Stone"sv, "Riverwood"sv,
+            "Dragon Bridge"sv, "Karthwasten"sv, "Helgen"sv, "Solstheim"sv,
+            "Raven Rock"sv, "Darkwater Crossing"sv, "Old Hroldan"sv
+        };
 
         std::mutex                                      g_mutex;
         std::map<std::string, std::string, std::less<>> g_cache;
@@ -178,8 +217,38 @@ namespace BioForge::RegionDigest
         struct ScoredBio
         {
             int         score{};
-            std::string line;
+            int         cites{};
+            std::string name;       // display name, for citation counting
+            std::string ties;       // this bio's own relationships block
+            std::string line;       // the "- Name: summary" the prompt receives
         };
+
+        // The dozen characters before a mention, lowercased - enough to see an
+        // "in ", "at ", "of " or "from " in front of it.
+        std::string Preceding(std::string_view a_text, std::size_t a_at)
+        {
+            const auto start = a_at >= 12 ? a_at - 12 : std::size_t{ 0 };
+            std::string out{ a_text.substr(start, a_at - start) };
+            for (auto& ch : out) {
+                ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+            }
+            return out;
+        }
+
+        // Ends with a_word (which carries its own trailing space) as a whole
+        // word, so "cabin " does not read as "in ".
+        bool EndsWithWord(std::string_view a_lower, std::string_view a_word)
+        {
+            if (!a_lower.ends_with(a_word)) {
+                return false;
+            }
+            if (a_lower.size() == a_word.size()) {
+                return true;
+            }
+            const auto prev = static_cast<unsigned char>(
+                a_lower[a_lower.size() - a_word.size() - 1]);
+            return std::isalnum(prev) == 0;
+        }
 
         bool IsSettlement(const RE::BGSLocation* a_location)
         {
@@ -200,14 +269,10 @@ namespace BioForge::RegionDigest
         // ready-made description, and the set reflects their actual load order,
         // mod-added characters included.
         //
-        // INTERIM HEURISTIC. This reads the whole corpus and keeps the highest
-        // scoring a_max, replacing an earlier version that stopped at the first
-        // a_max it walked past. That cut alphabetically: on a 3,200-bio corpus
-        // Riften filled its 120 slots by "J", so every mod-added NPC sorting
-        // later was dropped silently - the exact characters the digest exists to
-        // surface, since the model can supply vanilla Riften unaided. Ranking is
-        // a better cut, not a principled one; if this is revisited, the thing to
-        // fix is that a substring hit anywhere in a file still counts at all.
+        // Tuning lives in tools/rank_probe.py, which runs this same scoring
+        // against the real corpus with no game running. Change the weights
+        // there first, look at what moves, then mirror them into the constants
+        // above.
         std::string GatherCandidates(const Region& a_region, std::size_t a_max)
         {
             const auto      dir = Staging::PromptsDir() / "characters";
@@ -216,10 +281,6 @@ namespace BioForge::RegionDigest
                 logs::warn("digest: no bio corpus at {}"sv, dir.string());
                 return {};
             }
-
-            static const std::regex summaryRe{
-                R"(\{%\s*block\s+summary\s*%\}([\s\S]*?)\{%\s*endblock)"
-            };
 
             const auto started = std::chrono::steady_clock::now();
 
@@ -244,34 +305,92 @@ namespace BioForge::RegionDigest
                     continue;
                 }
 
-                std::smatch match;
-                if (!std::regex_search(text, match, summaryRe)) {
-                    continue;   // no summary block: nothing to describe them with
+                const auto summary = Staging::ExtractSummary(text);
+                if (summary.empty()) {
+                    continue;   // nothing to describe them with
                 }
-                const std::string summary = match[1].str();
 
-                int score = 0;
+                int        score = 0;
+                const auto at    = summary.find(a_region.name);
+
                 if (regionHits > 0) {
-                    // Named in the SUMMARY is the strong signal - that is where
-                    // a bio says who someone is and where they are. Elsewhere in
-                    // the file it may be a caravan route or an absent relative:
-                    // Jofthor farms in Ivarstead and Janus keeps a shop in
-                    // Rorikstead, and both mention Riften in passing.
-                    score += summary.find(a_region.name) != std::string::npos ? kInSummary
-                                                                             : kInBody;
-                    score += kPerMention * static_cast<int>(
-                                               (std::min)(regionHits,
-                                                          static_cast<std::size_t>(kMaxMentions)));
+                    score += at != std::string::npos ? kInSummary : kInBody;
                 } else {
                     ++holdOnly;
-                    score += summary.find(a_region.hold) != std::string::npos ? kHoldInSummary
-                                                                             : kHoldInBody;
+                    score += summary.find(a_region.hold) != std::string::npos
+                                 ? kHoldInSummary
+                                 : kHoldInBody;
                 }
 
-                scored.push_back(ScoredBio{
-                    score,
-                    "- " + NameFromStem(file.path().stem().string()) + ": " +
-                        FirstSentence(summary, 240) + "\n" });
+                if (at != std::string::npos) {
+                    const auto before = Preceding(summary, at);
+                    const bool possessive =
+                        summary.compare(at, a_region.name.size() + 2,
+                                        a_region.name + "'s") == 0;
+
+                    if (possessive || EndsWithWord(before, "in "sv) ||
+                        EndsWithWord(before, "at "sv) || EndsWithWord(before, "of "sv) ||
+                        EndsWithWord(before, "near "sv)) {
+                        score += kLocative;
+                    }
+                    if (static_cast<double>(at) / static_cast<double>(summary.size()) <
+                        kEarlyFraction) {
+                        score += kEarly;
+                    }
+
+                    // Inside parentheses: almost always somebody ELSE's origin.
+                    const auto opened = summary.rfind('(', at);
+                    const auto closed = summary.rfind(')', at);
+                    if (opened != std::string::npos &&
+                        (closed == std::string::npos || opened > closed)) {
+                        score += kParenPenalty;
+                    }
+
+                    // Another settlement named first: they live there, not here.
+                    for (const auto& other : kSettlements) {
+                        if (other == a_region.name) {
+                            continue;
+                        }
+                        const auto where = summary.find(other);
+                        if (where != std::string::npos && where < at) {
+                            score += kOtherFirstPenalty;
+                            break;
+                        }
+                    }
+
+                    // "from Riften" is an origin; "from Riften's docks" is not.
+                    if (EndsWithWord(before, "from "sv) && !possessive) {
+                        score += kOriginPenalty;
+                    }
+                }
+
+                ScoredBio bio;
+                bio.score = score;
+                bio.name  = NameFromStem(file.path().stem().string());
+                bio.ties  = Staging::ExtractBlock(text, "relationships"sv);
+                bio.line  = "- " + bio.name + ": " + FirstSentence(summary, 240) + "\n";
+                scored.push_back(std::move(bio));
+            }
+
+            // Co-citation, over the CANDIDATES' relationships blocks rather than
+            // the whole corpus. Measured against the full-corpus version the
+            // kept set differs by one bio in a hundred and twenty, for a tenth
+            // of the text to scan - and locals naming locals is arguably the
+            // truer signal anyway.
+            std::string ties;
+            for (const auto& bio : scored) {
+                ties += bio.ties;
+                ties += '\n';
+            }
+            for (auto& bio : scored) {
+                // Short single names match too much to count honestly.
+                if (bio.name.size() < 5 && bio.name.find(' ') == std::string::npos) {
+                    continue;
+                }
+                const auto total = CountOccurrences(ties, bio.name);
+                const auto own   = CountOccurrences(bio.ties, bio.name);
+                bio.cites        = static_cast<int>(total > own ? total - own : 0);
+                bio.score += kCiteWeight * (std::min)(bio.cites, kCiteCap);
             }
 
             // Stable: equal scores keep directory order, so the same corpus
@@ -281,18 +400,38 @@ namespace BioForge::RegionDigest
                                  return a_lhs.score > a_rhs.score;
                              });
 
-            const auto  keep = (std::min)(scored.size(), a_max);
+            // One slot per character. A corpus can hold two files for the same
+            // person under different reference FormIDs, and offering the model
+            // the same name twice buys nothing.
             std::string out;
-            for (std::size_t i = 0; i < keep; ++i) {
-                out += scored[i].line;
+            std::size_t kept = 0;
+            std::size_t dupes = 0;
+            std::vector<std::string> takenNames;
+            for (const auto& bio : scored) {
+                if (kept >= a_max) {
+                    break;
+                }
+                std::string key = bio.name;
+                for (auto& ch : key) {
+                    ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+                }
+                if (std::find(takenNames.begin(), takenNames.end(), key) !=
+                    takenNames.end()) {
+                    ++dupes;
+                    continue;
+                }
+                takenNames.push_back(std::move(key));
+                out += bio.line;
+                ++kept;
             }
 
             const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
                                 std::chrono::steady_clock::now() - started)
                                 .count();
             logs::info(
-                "digest: {} - {} of {} bio(s) match ({} hold-only), keeping the {} strongest [{}ms]"sv,
-                a_region.name, scored.size(), examined, holdOnly, keep, ms);
+                "digest: {} - {} of {} bio(s) match ({} hold-only), keeping the {} strongest"
+                " ({} duplicate name(s) skipped) [{}ms]"sv,
+                a_region.name, scored.size(), examined, holdOnly, kept, dupes, ms);
             return out;
         }
     }
