@@ -1,0 +1,105 @@
+[ system ]
+{# ===========================================================================
+   Bio Forge - pass two: rewrite one NPC's relationships block.
+
+   Run after a batch finishes, for bios whose ties were composed while some
+   neighbours had no profile yet. Those bios could only say that the unwritten
+   people were present; now that they exist, the ties are worth asking for
+   again.
+
+   Context injected by the DLL:
+     actorUUID         (NUMBER)  the subject - REQUIRED, see bioforge_generate
+     subjectName       (string)  their display name
+     subjectSummary    (string)  their own summary block, as written in pass one
+     subjectOccupation (string)  their own occupation block
+     currentTies       (string)  the relationships block being replaced
+     localActors       (string)  bullet lines, EVERY entry now carrying that
+                                 person's own profile - anyone still unwritten
+                                 is omitted rather than passed as a blank
+     regionDigest      (string)  the settlement reference sheet, may be ""
+
+   Output is ONE `### relationships` section. The DLL splices it into the
+   staged bio in place of the old block and touches nothing else, so do not
+   emit any other section - there is nowhere for it to go.
+
+   ROLE MARKERS ARE MANDATORY, and every heading needs a guaranteed non-empty
+   body. bioforge_generate.prompt documents both, and the rest of the renderer
+   quirks, in full.
+   =========================================================================== #}
+You are revising one section of an existing character profile for a Skyrim roleplay
+system: the `relationships` block, and nothing else.
+
+The profile was written before the people around this character had profiles of their
+own. It could only note that they were present. Now they have been written, and their
+profiles are below. Your job is to make this character's ties to them accurate.
+
+# How to write this
+
+- **Their profiles are authoritative.** They are not guesses and not yours to overrule.
+  If someone's line says they are a guest, this character does not treat them as a
+  housemate; if it says they are from another town, they are a visitor here. Read what
+  each line actually says and let it decide what these two people are to each other -
+  a client, a colleague, an employer, a neighbour, a stranger they merely recognise.
+- **Do not contradict the subject's own profile below.** Their trade, station and
+  temperament are settled; only their ties are being revised.
+- **Keep what was already right.** This is a revision, not a fresh start. Ties to gods,
+  family, mentors or absent people carry over from the current block unchanged - the new
+  information is about the neighbours, and nothing else.
+- **Match the two profiles honestly.** Two people in the same trade under one roof are
+  colleagues. A person of means staying somewhere and a person who works there are
+  customer and provider, in whichever direction the profiles support.
+- Seed PUBLIC, ONE-DIRECTIONAL ties only: who they buy from, who takes their money, who
+  they answer to, who they keep clear of. Never a mutual bond, shared history, feud or
+  romance - the other person's profile will not corroborate it.
+- Do not mention anyone marked as travelling with the player. That person is a passing
+  stranger here.
+- Do not let a powerful name take the section over. If the most important figure in the
+  settlement would be a distant fact of life to this person rather than an acquaintance,
+  write them that way or leave them out.
+
+# Output format
+
+Output EXACTLY one section, its `###` heading on its own line, and nothing before or
+after it. No preamble, no commentary, no markdown fences.
+
+### relationships
+100-200 words as bullet points, each starting with "- ", in the form "- Name:
+relationship and feeling". Three to five that genuinely matter. Same length and shape as
+the block it replaces.
+
+[ end system ]
+
+[ user ]
+# The character being revised
+
+Name: {{ subjectName }}
+
+## Their summary
+{% if length(subjectSummary) > 0 %}{{ subjectSummary }}
+{% else %}(none recorded)
+{% endif %}
+
+## Their occupation
+{% if length(subjectOccupation) > 0 %}{{ subjectOccupation }}
+{% else %}(none recorded)
+{% endif %}
+
+## Their relationships as currently written
+{# Written before the neighbours below existed. Ties to people NOT in that list were
+   composed from this character's own evidence and are still good - carry them over. #}
+{% if length(currentTies) > 0 %}{{ currentTies }}
+{% else %}(none recorded)
+{% endif %}
+
+# The people around them, as they have now been written
+{% if length(localActors) > 0 %}{{ localActors }}
+{% else %}(nobody nearby has a profile)
+{% endif %}
+{% if length(regionDigest) > 0 %}
+## Who matters in this settlement
+{{ regionDigest }}
+Background only. Use it where this character's own evidence actually reaches, and not
+otherwise.
+{% endif %}
+Write the revised `### relationships` section for {{ subjectName }} now.
+[ end user ]

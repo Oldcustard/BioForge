@@ -332,23 +332,67 @@ namespace BioForge::Staging
         }
     }
 
+    std::string ExtractBlock(std::string_view a_promptText, std::string_view a_blockName)
+    {
+        // Hand-scanned rather than regexed: the block markers are fixed text.
+        const std::string open  = "block " + std::string{ a_blockName } + " %}";
+        constexpr auto    close = "{% endblock"sv;
+
+        const auto at = a_promptText.find(open);
+        if (at == std::string_view::npos) {
+            return {};
+        }
+        const auto bodyStart = at + open.size();
+        const auto bodyEnd   = a_promptText.find(close, bodyStart);
+        if (bodyEnd == std::string_view::npos) {
+            return {};
+        }
+        return std::string{ Trim(a_promptText.substr(bodyStart, bodyEnd - bodyStart)) };
+    }
+
     std::string ExtractSummary(std::string_view a_promptText)
     {
-        // Hand-scanned rather than regexed: the block markers are fixed text,
-        // and this runs once per roster entry per batch.
-        constexpr auto kOpen  = "block summary %}"sv;
-        constexpr auto kClose = "{% endblock"sv;
+        return ExtractBlock(a_promptText, "summary"sv);
+    }
 
-        const auto open = a_promptText.find(kOpen);
-        if (open == std::string_view::npos) {
-            return {};
+    std::string ExtractSection(std::string_view a_raw, std::string_view a_sectionName)
+    {
+        std::string body;
+
+        int         current = -1;   // -1 until the wanted heading is seen
+        std::size_t pos     = 0;
+        while (pos <= a_raw.size()) {
+            const auto end  = a_raw.find('\n', pos);
+            const auto line = a_raw.substr(pos, end == std::string_view::npos
+                                                   ? std::string_view::npos
+                                                   : end - pos);
+            pos = end == std::string_view::npos ? a_raw.size() + 1 : end + 1;
+
+            const auto trimmed = Trim(line);
+            if (!trimmed.empty() && trimmed.front() == '#') {
+                const auto hashEnd = trimmed.find_first_not_of('#');
+                if (hashEnd == std::string_view::npos) {
+                    continue;   // a bare "###" line, not a heading
+                }
+                const auto name = Trim(trimmed.substr(hashEnd));
+                if (MatchBlockName(name) == MatchBlockName(a_sectionName) &&
+                    MatchBlockName(name) >= 0) {
+                    current = 1;
+                    continue;
+                }
+                if (current > 0) {
+                    break;   // next heading ends the section we wanted
+                }
+                continue;
+            }
+
+            if (current > 0) {
+                body += line;
+                body += '\n';
+            }
         }
-        const auto bodyStart = open + kOpen.size();
-        const auto close     = a_promptText.find(kClose, bodyStart);
-        if (close == std::string_view::npos) {
-            return {};
-        }
-        return std::string{ Trim(a_promptText.substr(bodyStart, close - bodyStart)) };
+
+        return std::string{ Trim(body) };
     }
 
     std::string BioSummary(const Candidate& a_candidate)
@@ -402,6 +446,89 @@ namespace BioForge::Staging
             return {};
         }
         return ReadWholeFile(std::filesystem::path{ a_entry.stagingDir } / "response.raw.txt");
+    }
+
+    std::string StagedBioFor(std::uint32_t a_refFormID)
+    {
+        std::filesystem::path dir;
+        {
+            std::lock_guard lock{ g_mutex };
+            const Entry*    e = FindLocked(a_refFormID);
+            if (!e || e->stagingDir.empty()) {
+                return {};
+            }
+            dir = e->stagingDir;
+        }
+        return ReadWholeFile(dir / "bio.prompt");
+    }
+
+    bool ApplyRefinedBlock(std::uint32_t a_refFormID, std::string_view a_blockName,
+                           std::string_view a_rawResponse, std::string& a_note)
+    {
+        std::filesystem::path dir;
+        {
+            std::lock_guard lock{ g_mutex };
+            const Entry*    e = FindLocked(a_refFormID);
+            if (!e || e->stagingDir.empty()) {
+                a_note = "nothing staged to refine";
+                return false;
+            }
+            dir = e->stagingDir;
+        }
+
+        // Keep the reply either way - a refine that made things worse is only
+        // reviewable if the raw text survives.
+        WriteFile(dir / "refine.raw.txt", a_rawResponse);
+
+        const auto replacement = ExtractSection(a_rawResponse, a_blockName);
+        if (replacement.empty()) {
+            a_note = "refine reply had no " + std::string{ a_blockName } + " section";
+            return false;
+        }
+
+        const auto bio = ReadWholeFile(dir / "bio.prompt");
+        if (bio.empty()) {
+            a_note = "staged bio.prompt could not be read";
+            return false;
+        }
+
+        const std::string open  = "{% block " + std::string{ a_blockName } + " %}";
+        constexpr auto    close = "{% endblock %}"sv;
+
+        const auto at = bio.find(open);
+        if (at == std::string::npos) {
+            a_note = "staged bio has no " + std::string{ a_blockName } + " block";
+            return false;
+        }
+        const auto bodyEnd = bio.find(close, at + open.size());
+        if (bodyEnd == std::string::npos) {
+            a_note = "staged " + std::string{ a_blockName } + " block is unterminated";
+            return false;
+        }
+
+        // Match how ParseResponse lays a block out: multi-line bodies sit on
+        // their own lines, single-line bodies stay inline.
+        std::string rebuilt{ bio.substr(0, at + open.size()) };
+        if (replacement.find('\n') != std::string::npos) {
+            rebuilt += '\n';
+            rebuilt += replacement;
+            rebuilt += '\n';
+        } else {
+            rebuilt += replacement;
+        }
+        rebuilt += bio.substr(bodyEnd);
+
+        WriteFile(dir / "bio.prompt", rebuilt);
+
+        a_note = "ties rewritten against the finished roster";
+        {
+            std::lock_guard lock{ g_mutex };
+            if (Entry* e = FindLocked(a_refFormID)) {
+                e->refined = true;
+                e->note    = a_note;
+            }
+        }
+        return true;
     }
 
     void Discard(const Entry& a_entry)

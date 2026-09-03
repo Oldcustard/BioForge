@@ -69,6 +69,13 @@ schema:
       max: 8
       category: "Generation"
 
+    - name: "Refine Ties After A Batch"
+      path: "generate.refinePass"
+      type: "bool"
+      description: "After a batch finishes, re-ask for the relationships section of any bio that was written while the people around it still had no profile. Those bios could only note that their neighbours were present; this rewrites their ties now that the neighbours exist. One small extra call per affected NPC, and only for ones that actually gained a written neighbour - nothing else in the bio is touched, and a failed refine leaves the original exactly as it was."
+      defaultValue: true
+      category: "Generation"
+
     # ---- Regional digest ---------------------------------------------------
     # A short reference sheet of who holds power, trade and property in one
     # settlement, written once by the LLM and reused by every bio generated

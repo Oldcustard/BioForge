@@ -355,8 +355,9 @@ namespace BioForge::UI
                     ImGuiMCP::PushID(static_cast<int>(e.refFormID));
 
                     char label[192]{};
-                    std::snprintf(label, sizeof(label), "%-28s %s%s", e.name.c_str(),
-                                  StateLabel(e.state), e.committed ? ", committed" : "");
+                    std::snprintf(label, sizeof(label), "%-28s %s%s%s", e.name.c_str(),
+                                  StateLabel(e.state), e.refined ? ", ties revised" : "",
+                                  e.committed ? ", committed" : "");
 
                     if (ImGuiMCP::Selectable(label, e.refFormID == g_selected)) {
                         g_selected = e.refFormID;

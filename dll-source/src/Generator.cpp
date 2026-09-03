@@ -20,6 +20,13 @@ namespace BioForge::Generator
     {
         constexpr auto kPromptName = "bioforge_generate"sv;
 
+        // Pass two. A bio written while some neighbours had no profile yet can
+        // only say that those people are present; once they HAVE been written,
+        // their ties are worth asking for again. Only `relationships` is
+        // rewritten - it is the one block whose content is about other people.
+        constexpr auto kRefinePrompt = "bioforge_refine_ties"sv;
+        constexpr auto kRefineBlock  = "relationships"sv;
+
         // SkyrimNet's own bio-writing variant, not one of ours. Bio Forge does
         // exactly the job this variant is already configured for, so it should
         // inherit whatever model the user picked for profile generation rather
@@ -186,13 +193,33 @@ namespace BioForge::Generator
         // the main thread. That is the point: the completion callback runs on a
         // SkyrimNet ThreadPool worker and must never reach into game data, so
         // nothing here may require a second look at the world.
+        enum class Kind
+        {
+            Generate,   // write the whole bio
+            Refine      // rewrite one block of an already-staged bio
+        };
+
         struct Job
         {
+            Kind          kind{ Kind::Generate };
             std::uint32_t refFormID{};
             std::string   name;
             std::string   fileName;
             std::string   contextJson;
         };
+
+        // Bios written while at least one neighbour was still unwritten, with
+        // the neighbours that were missing at the time. Held until the batch
+        // drains, then re-asked - see Tick().
+        struct RefineWatch
+        {
+            Candidate                  subject;
+            std::vector<std::uint32_t> unknown;
+        };
+
+        std::vector<RefineWatch> g_refineWatch;
+        std::vector<Candidate>   g_refineRoster;
+        std::string              g_refineDigest;
 
         std::mutex      g_queueMutex;
         std::deque<Job> g_queue;
@@ -207,9 +234,31 @@ namespace BioForge::Generator
 
         void Pump();
 
-        void OnComplete(std::uint32_t a_refFormID, const std::string& a_context,
+        void OnComplete(Kind a_kind, std::uint32_t a_refFormID, const std::string& a_context,
                         const char* a_response, int a_success)
         {
+            if (a_kind == Kind::Refine) {
+                // A failed refine must never damage what pass one produced.
+                // The staged bio stays exactly as it was and we say why.
+                std::string note;
+                if (!a_response || a_success == 0) {
+                    logs::warn("refine: {:08X} - {}"sv, a_refFormID,
+                               a_response ? a_response : "empty response");
+                } else if (!Staging::ApplyRefinedBlock(a_refFormID, kRefineBlock, a_response,
+                                                       note)) {
+                    logs::warn("refine: {:08X} left as written - {}"sv, a_refFormID, note);
+                } else {
+                    logs::info("refine: {:08X} - {}"sv, a_refFormID, note);
+                }
+
+                {
+                    std::lock_guard lock{ g_queueMutex };
+                    --g_inFlight;
+                }
+                Pump();
+                return;
+            }
+
             if (!a_response || a_success == 0) {
                 Staging::RecordFailed(a_refFormID, a_response ? a_response : "empty response");
             } else {
@@ -243,17 +292,26 @@ namespace BioForge::Generator
                     ++g_inFlight;
                 }
 
-                Staging::Begin(job.refFormID, job.name, job.fileName);
+                // A refine must NOT call Begin: the entry already exists and
+                // holds the staging bundle this pass is about to edit.
+                if (job.kind == Kind::Generate) {
+                    Staging::Begin(job.refFormID, job.name, job.fileName);
+                }
 
                 const bool queued = SN::SendCustomPrompt(
-                    kPromptName.data(), kVariant.data(), job.contextJson.c_str(),
-                    [ref = job.refFormID, ctx = job.contextJson](const char* a_response,
-                                                                 int         a_success) {
-                        OnComplete(ref, ctx, a_response, a_success);
+                    job.kind == Kind::Refine ? kRefinePrompt.data() : kPromptName.data(),
+                    kVariant.data(), job.contextJson.c_str(),
+                    [kind = job.kind, ref = job.refFormID,
+                     ctx = job.contextJson](const char* a_response, int a_success) {
+                        OnComplete(kind, ref, ctx, a_response, a_success);
                     });
 
                 if (!queued) {
-                    Staging::RecordFailed(job.refFormID, "SkyrimNet did not queue the task");
+                    if (job.kind == Kind::Refine) {
+                        logs::warn("refine: SkyrimNet did not queue {:08X}"sv, job.refFormID);
+                    } else {
+                        Staging::RecordFailed(job.refFormID, "SkyrimNet did not queue the task");
+                    }
                     {
                         std::lock_guard lock{ g_queueMutex };
                         --g_inFlight;
@@ -261,7 +319,9 @@ namespace BioForge::Generator
                     continue;   // the loop takes the next one; no recursion
                 }
 
-                logs::info("generate: task queued for {} ({})"sv, job.name, job.fileName);
+                logs::info("{}: task queued for {} ({})"sv,
+                           job.kind == Kind::Refine ? "refine"sv : "generate"sv,
+                           job.name, job.fileName);
             }
         }
 
@@ -291,13 +351,39 @@ namespace BioForge::Generator
         {
             const auto summaries = ResolveRoster(a_roster);
 
-            std::vector<Job> jobs;
+            std::vector<Job>         jobs;
+            std::vector<RefineWatch> watch;
             jobs.reserve(a_candidates.size());
             for (const auto& c : a_candidates) {
                 Job job;
-                if (BuildJob(c, a_roster, summaries, a_regionDigest, job)) {
-                    jobs.push_back(std::move(job));
-                }   // otherwise BuildContext has already logged why
+                if (!BuildJob(c, a_roster, summaries, a_regionDigest, job)) {
+                    continue;   // BuildContext has already logged why
+                }
+                jobs.push_back(std::move(job));
+
+                // Note which neighbours were still unwritten when this bio was
+                // built. If any of them get written by the end of the batch,
+                // this bio's ties were composed on incomplete information.
+                RefineWatch w{ c, {} };
+                for (const auto& other : a_roster) {
+                    if (other.refFormID == c.refFormID || other.name.empty()) {
+                        continue;
+                    }
+                    const auto known = summaries.find(other.refFormID);
+                    if (known == summaries.end() || known->second.empty()) {
+                        w.unknown.push_back(other.refFormID);
+                    }
+                }
+                if (!w.unknown.empty()) {
+                    watch.push_back(std::move(w));
+                }
+            }
+
+            if (Config::Get().refinePass && !watch.empty()) {
+                std::lock_guard lock{ g_queueMutex };
+                g_refineWatch.insert(g_refineWatch.end(), watch.begin(), watch.end());
+                g_refineRoster = a_roster;
+                g_refineDigest = a_regionDigest;
             }
 
             const std::size_t queued = jobs.size();
@@ -309,6 +395,62 @@ namespace BioForge::Generator
             }
             Pump();
             return queued;
+        }
+
+        // Build the pass-two job for one subject: their own bio so the rewrite
+        // does not contradict it, plus the roster as it stands NOW.
+        bool BuildRefineJob(const Candidate& a_subject, const RosterSummaries& a_summaries,
+                            Job& a_job)
+        {
+            const auto staged = Staging::StagedBioFor(a_subject.refFormID);
+            if (staged.empty()) {
+                return false;   // failed its first pass, or was discarded
+            }
+
+            const auto uuid = SN::FormIDToUUID(a_subject.refFormID);
+            if (uuid == 0) {
+                return false;
+            }
+
+            std::string roster;
+            for (const auto& other : g_refineRoster) {
+                if (other.refFormID == a_subject.refFormID || other.name.empty()) {
+                    continue;
+                }
+                const auto known = a_summaries.find(other.refFormID);
+                if (known == a_summaries.end() || known->second.empty()) {
+                    continue;   // still unwritten: nothing to say, so say nothing
+                }
+                roster += "- " + other.name;
+                if (!other.race.empty()) {
+                    roster += " (" + other.race + ")";
+                }
+                if (other.isFollower) {
+                    roster += " - travelling with the player, not a local";
+                }
+                roster += ": " + known->second + "\n";
+            }
+            if (roster.empty()) {
+                return false;   // nobody became known after all
+            }
+            roster.pop_back();
+
+            a_job.kind        = Kind::Refine;
+            a_job.refFormID   = a_subject.refFormID;
+            a_job.name        = a_subject.name;
+            a_job.fileName    = Staging::BioFileName(a_subject);
+            a_job.contextJson =
+                std::string{ "{" } + "\"actorUUID\":" + std::to_string(uuid) + "," +
+                "\"subjectName\":\"" + Json::Escape(a_subject.name) + "\"," +
+                "\"subjectSummary\":\"" +
+                Json::Escape(Staging::ExtractBlock(staged, "summary"sv)) + "\"," +
+                "\"subjectOccupation\":\"" +
+                Json::Escape(Staging::ExtractBlock(staged, "occupation"sv)) + "\"," +
+                "\"currentTies\":\"" +
+                Json::Escape(Staging::ExtractBlock(staged, kRefineBlock)) + "\"," +
+                "\"localActors\":\"" + Json::Escape(roster) + "\"," +
+                "\"regionDigest\":\"" + Json::Escape(g_refineDigest) + "\"}";
+            return true;
         }
 
         bool Ready()
@@ -391,6 +533,66 @@ namespace BioForge::Generator
         return queued;
     }
 
+    namespace
+    {
+        // Pass two, once the batch has fully settled. Anyone whose ties were
+        // written while a neighbour was still unwritten gets asked again, now
+        // that the neighbour exists. Only those who actually gained a known
+        // neighbour are re-asked - a bio whose unknowns stayed unknown has
+        // nothing new to say and is left alone.
+        void RunRefinePass()
+        {
+            std::vector<RefineWatch> watch;
+            {
+                std::lock_guard lock{ g_queueMutex };
+                if (g_refineWatch.empty()) {
+                    return;
+                }
+                // Wait for the whole batch to settle, or a refine would be
+                // composed against a roster still filling in.
+                if (g_inFlight > 0 || !g_queue.empty() || !g_pending.empty()) {
+                    return;
+                }
+                watch = std::exchange(g_refineWatch, {});
+            }
+
+            const auto summaries = ResolveRoster(g_refineRoster);
+
+            std::vector<Job> jobs;
+            for (const auto& w : watch) {
+                const bool gained =
+                    std::any_of(w.unknown.begin(), w.unknown.end(), [&](std::uint32_t a_ref) {
+                        const auto known = summaries.find(a_ref);
+                        return known != summaries.end() && !known->second.empty();
+                    });
+                if (!gained) {
+                    continue;
+                }
+
+                Job job;
+                if (BuildRefineJob(w.subject, summaries, job)) {
+                    jobs.push_back(std::move(job));
+                }
+            }
+
+            if (jobs.empty()) {
+                return;
+            }
+
+            const auto count = jobs.size();
+            {
+                std::lock_guard lock{ g_queueMutex };
+                for (auto& job : jobs) {
+                    g_queue.push_back(std::move(job));
+                }
+            }
+            logs::info("refine: {} bio(s) had ties written before their neighbours existed - "
+                       "rewriting those"sv,
+                       count);
+            Pump();
+        }
+    }
+
     void Tick()
     {
         std::vector<Candidate> batch;
@@ -398,12 +600,19 @@ namespace BioForge::Generator
         std::string            region;
         {
             std::lock_guard lock{ g_queueMutex };
-            if (g_pending.empty() || RegionDigest::Building()) {
-                return;   // nothing held, or still waiting - the common case
+            if (!g_pending.empty() && !RegionDigest::Building()) {
+                batch  = std::exchange(g_pending, {});
+                roster = std::exchange(g_pendingRoster, {});
+                region = std::exchange(g_pendingRegion, {});
             }
-            batch  = std::exchange(g_pending, {});
-            roster = std::exchange(g_pendingRoster, {});
-            region = std::exchange(g_pendingRegion, {});
+        }
+
+        // OUTSIDE the lock: RunRefinePass takes g_queueMutex itself, and it is
+        // a plain std::mutex - calling it from inside the scope above would
+        // deadlock the UI thread on every frame the panel is open.
+        if (batch.empty()) {
+            RunRefinePass();
+            return;   // nothing held, or still waiting - the common case
         }
 
         // The build may have failed or come back unusable. Say so plainly and
@@ -442,6 +651,7 @@ namespace BioForge::Generator
             g_pending.clear();
             g_pendingRoster.clear();
             g_pendingRegion.clear();
+            g_refineWatch.clear();
         }
         if (dropped > 0) {
             logs::info("generate: dropped {} queued job(s); in-flight requests still finish"sv,

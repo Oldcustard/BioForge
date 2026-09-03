@@ -37,6 +37,12 @@ namespace BioForge::Config
         // How many installed bios to offer the digest as candidates. This is
         // the one genuinely large block in that prompt, so it is capped.
         int digestMaxCandidates = 120;
+
+        // After a batch, re-ask for the relationships block of any bio whose
+        // neighbours were still unwritten when it was composed. One small extra
+        // call per affected NPC, and only for those that actually gained a
+        // known neighbour.
+        bool refinePass = true;
     };
 
     // Reads SkyrimNet's config store for this plugin, falling back to the

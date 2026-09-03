@@ -38,6 +38,7 @@ namespace BioForge
             State         state{ State::Generating };
             std::string   note;          // failure reason / parse gaps / commit result
             bool          committed{};
+            bool          refined{};     // ties rewritten by the second pass
         };
 
         // <Data>/SKSE/Plugins/SkyrimNet/prompts, resolved from this DLL's own
@@ -101,9 +102,17 @@ namespace BioForge
         // resolves without a restart. Returns false with a_note on failure.
         bool Commit(const Entry& a_entry, std::string& a_note);
 
-        // Pull the body of a bio's `summary` block out of .prompt text. Empty
-        // when there is no such block.
+        // Pull the body of one `{% block %}` out of .prompt text. Empty when
+        // there is no such block.
+        std::string ExtractBlock(std::string_view a_promptText, std::string_view a_blockName);
+
+        // Shorthand for the block the roster and the digest harvest both want.
         std::string ExtractSummary(std::string_view a_promptText);
+
+        // Pull one `### name` section out of a raw LLM reply, ending at the
+        // next heading or the end of the text. For the refine pass, which asks
+        // for a single block rather than all ten.
+        std::string ExtractSection(std::string_view a_raw, std::string_view a_sectionName);
 
         // One line describing who this actor already is, for the roster handed
         // to a neighbour's generation: the first sentence of their summary
@@ -123,6 +132,23 @@ namespace BioForge
 
         // The raw LLM response, for when a parse failed and the reason matters.
         std::string ReadRawResponse(const Entry& a_entry);
+
+        // Read a staged bio's own text, by reference rather than by Entry.
+        // Empty when nothing is staged for it.
+        std::string StagedBioFor(std::uint32_t a_refFormID);
+
+        // Replace one block in an already-staged bio with a rewritten body and
+        // save it. This is the refine pass landing: pass 1 wrote the bio when
+        // some neighbours had no profile yet, and pass 2 rewrites just the
+        // block that depended on them. Keeps the raw reply beside the original
+        // as refine.raw.txt, so a bad refine is still inspectable.
+        //
+        // False when the entry is gone, the block is absent from the reply, or
+        // the file cannot be written - a_note says which. The staged bio is
+        // left untouched on any failure: a thin relationships block beats a
+        // destroyed one.
+        bool ApplyRefinedBlock(std::uint32_t a_refFormID, std::string_view a_blockName,
+                               std::string_view a_rawResponse, std::string& a_note);
 
         // Reject a staged bio: delete its bundle and drop it from the review
         // list. Does NOT touch an already-committed file in prompts/characters

@@ -36,7 +36,12 @@ Open SKSE Menu Framework's mod control panel (default **`x`**, set in
    bio as it would be committed, or flip to the raw model reply when a parse failed.
    Nothing touches your `prompts/characters/` folder until you press Commit.
 
-4. **Commit.** Writes the bio and asks SkyrimNet to reload its prompt cache, so the
+4. **Refine.** When a batch finishes, any bio written while the people around it still
+   had no profile gets its `relationships` section re-asked, now that those neighbours
+   exist. Only that section, only for NPCs that actually gained a written neighbour, and
+   a failure leaves the original untouched. Turn it off with `generate.refinePass`.
+
+5. **Commit.** Writes the bio and asks SkyrimNet to reload its prompt cache, so the
    character speaks with their new personality without restarting the game. Any
    existing file is backed up first as `<name>.prompt.backup.<unixtime>`.
 
@@ -96,6 +101,7 @@ SKSE/Plugins/BioForge.dll
 SKSE/Plugins/SkyrimNet/config/plugins/BioForge/manifest.yaml
 SKSE/Plugins/SkyrimNet/prompts/bioforge_generate.prompt
 SKSE/Plugins/SkyrimNet/prompts/bioforge_region_digest.prompt
+SKSE/Plugins/SkyrimNet/prompts/bioforge_refine_ties.prompt
 ```
 
 ## Configuration
@@ -112,6 +118,7 @@ manifest degrades to defaults rather than failing.
 | Unique NPCs only | `scan.uniqueOnly` | `true` |
 | Include dead | `scan.includeDead` | `false` |
 | Concurrent generations | `generate.maxConcurrent` | `2` |
+| Refine ties after a batch | `generate.refinePass` | `true` |
 | Use regional digests | `digest.enabled` | `true` |
 | Build digest before a batch | `digest.autoBuild` | `true` |
 | Bios harvested per digest | `digest.maxCandidates` | `120` |
