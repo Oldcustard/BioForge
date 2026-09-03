@@ -302,6 +302,92 @@ namespace BioForge::Staging
         }
     }
 
+    namespace
+    {
+        // An unfilled corpus template: "Feris is a [DESCRIPTION]." Rare - two
+        // files in a 3,200-bio corpus - but handing one to a neighbour's
+        // generation is worse than handing over nothing, because the roster
+        // presents these lines as authoritative fact. Treat it as unwritten.
+        bool IsPlaceholder(std::string_view a_summary)
+        {
+            for (std::size_t i = 0; i + 1 < a_summary.size(); ++i) {
+                if (a_summary[i] != '[') {
+                    continue;
+                }
+                const auto close = a_summary.find(']', i + 1);
+                if (close == std::string_view::npos) {
+                    return false;
+                }
+                const auto inner = a_summary.substr(i + 1, close - i - 1);
+                const bool shouty =
+                    inner.size() >= 3 &&
+                    std::all_of(inner.begin(), inner.end(), [](unsigned char ch) {
+                        return std::isupper(ch) || ch == '_' || ch == ' ';
+                    });
+                if (shouty) {
+                    return true;
+                }
+            }
+            return false;
+        }
+    }
+
+    std::string ExtractSummary(std::string_view a_promptText)
+    {
+        // Hand-scanned rather than regexed: the block markers are fixed text,
+        // and this runs once per roster entry per batch.
+        constexpr auto kOpen  = "block summary %}"sv;
+        constexpr auto kClose = "{% endblock"sv;
+
+        const auto open = a_promptText.find(kOpen);
+        if (open == std::string_view::npos) {
+            return {};
+        }
+        const auto bodyStart = open + kOpen.size();
+        const auto close     = a_promptText.find(kClose, bodyStart);
+        if (close == std::string_view::npos) {
+            return {};
+        }
+        return std::string{ Trim(a_promptText.substr(bodyStart, close - bodyStart)) };
+    }
+
+    std::string BioSummary(const Candidate& a_candidate)
+    {
+        std::string file{ BioFileName(a_candidate) };
+        if (file.ends_with(".prompt")) {
+            file.resize(file.size() - 7);
+        }
+
+        // Staging first: a batch-mate written minutes ago has not been
+        // committed yet, but it is the truest thing available about them.
+        for (const auto& path : { PromptsDir() / "bioforge_staging" / file / "bio.prompt",
+                                  PromptsDir() / "characters" / (file + ".prompt") }) {
+            const auto text = ReadWholeFile(path);
+            if (text.empty()) {
+                continue;
+            }
+            auto summary = ExtractSummary(text);
+            if (!summary.empty() && !IsPlaceholder(summary)) {
+                // One line: the roster is injected into every job in the batch,
+                // so a full summary each would crowd out the NPC's own evidence.
+                for (auto& ch : summary) {
+                    if (ch == '\n' || ch == '\r') {
+                        ch = ' ';
+                    }
+                }
+                const auto stop = summary.find(". ");
+                if (stop != std::string::npos) {
+                    summary.resize(stop + 1);
+                }
+                if (summary.size() > 240) {
+                    summary.resize(240);
+                }
+                return summary;
+            }
+        }
+        return {};
+    }
+
     std::string ReadStagedBio(const Entry& a_entry)
     {
         if (a_entry.stagingDir.empty()) {

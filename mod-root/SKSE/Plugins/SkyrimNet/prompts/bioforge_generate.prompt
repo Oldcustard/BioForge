@@ -259,10 +259,25 @@ have heard of.
 {{ localActors }}
 These are real, named characters standing in the same location. Someone who works or
 lives here plainly knows the others by name - use them in `relationships` rather than
-falling back on "the customers" or "the locals". Keep it to what proximity supports:
-a colleague, a regular, a neighbour, someone they tolerate. Do NOT invent shared
-history, romances, feuds or secrets with them, and do not mention anyone marked as
-travelling with the player - that person is a passing stranger here.
+falling back on "the customers" or "the locals".
+
+**Each entry after the colon is that person's OWN profile, and it is authoritative.**
+They are not a guess and not yours to overrule: if the line says someone is a guest,
+they are a guest, not a housemate; if it says they are from another town, they are a
+visitor here, not a resident. Read what their line actually says and let it decide what
+this NPC is to them - a client, a colleague, an employer, a stranger passing through.
+Getting this wrong is worse than saying nothing, because that other person's profile is
+loaded in the same conversations as this one and will contradict you outright.
+
+An entry marked **NO PROFILE YET** means nobody has written that person. You may name
+them and say only what standing in the same room proves - that they are here, and how
+often this NPC would see them. Do NOT give them a trade, a temperament, a history or a
+role. Guessing is precisely what goes wrong: they are about to be written by someone
+else, and an invented characterisation here will simply be contradicted.
+
+Do NOT invent shared history, romances, feuds or secrets with any of them, and do not
+mention anyone marked as travelling with the player - that person is a passing stranger
+here.
 {% endif %}{% if length(worldKnowledge) > 0 %}## What the world knows about them
 {{ worldKnowledge }}
 {% endif %}{% if length(relatedActors) > 0 %}## People they have been around

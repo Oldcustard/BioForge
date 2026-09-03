@@ -101,6 +101,22 @@ namespace BioForge
         // resolves without a restart. Returns false with a_note on failure.
         bool Commit(const Entry& a_entry, std::string& a_note);
 
+        // Pull the body of a bio's `summary` block out of .prompt text. Empty
+        // when there is no such block.
+        std::string ExtractSummary(std::string_view a_promptText);
+
+        // One line describing who this actor already is, for the roster handed
+        // to a neighbour's generation: the first sentence of their summary
+        // block. Checks THIS SESSION'S staging bundle first (a batch-mate
+        // generated minutes ago is the freshest truth), then the committed
+        // corpus. Empty when nobody has written them yet.
+        //
+        // This matters more than it looks. Without it the roster is bare names
+        // and the model invents what each neighbour is like - which is how a
+        // paying guest became a housemate and a girl from Ivarstead became a
+        // resident, both of whom already had bios saying otherwise.
+        std::string BioSummary(const Candidate& a_candidate);
+
         // The staged bio as written, for the review panel. Empty if the bundle
         // has no bio (a failed parse) or cannot be read.
         std::string ReadStagedBio(const Entry& a_entry);

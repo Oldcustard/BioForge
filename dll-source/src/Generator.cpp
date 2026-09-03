@@ -10,6 +10,7 @@
 #include "SkyrimNetAPI.h"
 
 #include <deque>
+#include <map>
 #include <mutex>
 #include <utility>
 
@@ -84,11 +85,26 @@ namespace BioForge::Generator
             return out;
         }
 
+        // refFormID -> "who this person already is", resolved ONCE per batch.
+        // Every job embeds the whole roster, so looking each neighbour up per
+        // job would be N file reads per job - N^2 over a crowded cell.
+        using RosterSummaries = std::map<std::uint32_t, std::string>;
+
+        RosterSummaries ResolveRoster(const std::vector<Candidate>& a_roster)
+        {
+            RosterSummaries out;
+            for (const auto& c : a_roster) {
+                out[c.refFormID] = Staging::BioSummary(c);
+            }
+            return out;
+        }
+
         // The harvest the DLL side adds. Everything else (dialogue, stats,
         // equipment, location) the template pulls itself through decorators -
         // that is what keeps prompt iteration rebuild-free.
         std::string BuildContext(const Candidate&              a_candidate,
                                  const std::vector<Candidate>& a_roster,
+                                 const RosterSummaries&        a_summaries,
                                  std::string_view              a_regionDigest)
         {
             const auto uuid = SN::FormIDToUUID(a_candidate.refFormID);
@@ -117,6 +133,15 @@ namespace BioForge::Generator
             // name real people. Followers are marked: they are only here
             // because the player walked them in, and writing them into a
             // resident's life would be wrong.
+            //
+            // Each entry carries who that person ALREADY IS, when anyone has
+            // written them. Without it the model has nothing but a name and a
+            // race and simply invents them - which produced a wealthy guest
+            // described as a housemate and a girl from Ivarstead installed as a
+            // resident, both of whom had bios on disk saying otherwise. Anyone
+            // still unwritten is marked as such rather than left bare, so the
+            // model knows the difference between "no information" and "nothing
+            // to say".
             std::string roster;
             for (const auto& other : a_roster) {
                 if (other.refFormID == a_candidate.refFormID || other.name.empty()) {
@@ -128,6 +153,13 @@ namespace BioForge::Generator
                 }
                 if (other.isFollower) {
                     roster += " - travelling with the player, not a local";
+                }
+
+                const auto known = a_summaries.find(other.refFormID);
+                if (known != a_summaries.end() && !known->second.empty()) {
+                    roster += ": " + known->second;
+                } else {
+                    roster += " - NO PROFILE YET, nothing is known about them";
                 }
                 roster += '\n';
             }
@@ -235,9 +267,10 @@ namespace BioForge::Generator
 
         // Main thread only - reads game data through the SkyrimNet API.
         bool BuildJob(const Candidate& a_candidate, const std::vector<Candidate>& a_roster,
-                      std::string_view a_regionDigest, Job& a_job)
+                      const RosterSummaries& a_summaries, std::string_view a_regionDigest,
+                      Job& a_job)
         {
-            const auto context = BuildContext(a_candidate, a_roster, a_regionDigest);
+            const auto context = BuildContext(a_candidate, a_roster, a_summaries, a_regionDigest);
             if (context.empty()) {
                 return false;
             }
@@ -256,11 +289,13 @@ namespace BioForge::Generator
                               const std::vector<Candidate>& a_roster,
                               std::string_view              a_regionDigest)
         {
+            const auto summaries = ResolveRoster(a_roster);
+
             std::vector<Job> jobs;
             jobs.reserve(a_candidates.size());
             for (const auto& c : a_candidates) {
                 Job job;
-                if (BuildJob(c, a_roster, a_regionDigest, job)) {
+                if (BuildJob(c, a_roster, summaries, a_regionDigest, job)) {
                     jobs.push_back(std::move(job));
                 }   // otherwise BuildContext has already logged why
             }
@@ -306,7 +341,7 @@ namespace BioForge::Generator
         }
 
         Job job;
-        if (!BuildJob(a_candidate, a_roster, digest, job)) {
+        if (!BuildJob(a_candidate, a_roster, ResolveRoster(a_roster), digest, job)) {
             return false;
         }
 
