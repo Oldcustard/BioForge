@@ -44,21 +44,28 @@ namespace BioForge::Config
         // known neighbour.
         bool refinePass = true;
 
-        // Ask SkyrimNet to rebuild its template path cache after a commit.
-        //
-        // It is NOT settled that this is needed: SkyrimNet falls back to direct
-        // path resolution on a cache miss, and a bio committed from inside the
-        // game process sits exactly where that fallback looks. The reload is
-        // not free either - it rebuilds a ~7,200 entry path cache and discards
-        // inja's compiled template storage. Turn this off to find out, or to
-        // keep it off if it turns out to be unnecessary.
-        bool reloadPrompts = true;
+        // So Refresh() can tell whether anything actually moved.
+        bool operator==(const Settings&) const = default;
     };
 
     // Reads SkyrimNet's config store for this plugin, falling back to the
     // defaults above for anything missing or unparseable. Safe before SkyrimNet
-    // resolves - it just yields defaults.
+    // resolves - it just yields defaults. Logs what it read.
     void Load();
+
+    // Re-read, and adopt the values if they changed.
+    //
+    // Settings used to be read only at kDataLoaded, so changing one in
+    // SkyrimNet's own panel wrote its settings.yaml and reached nothing until a
+    // full restart - a save reload does not re-fire the event. Nothing said so,
+    // and the setting simply appeared not to work; it cost two experiments in
+    // one evening before the cause was spotted.
+    //
+    // Cheap enough to call every frame: the actual read is throttled inside,
+    // and a read that changes nothing is silent. MAIN THREAD ONLY, and never
+    // while a generation is in flight - Pump reads maxConcurrent from a
+    // completion callback on a worker thread.
+    void Refresh();
 
     const Settings& Get();
 }

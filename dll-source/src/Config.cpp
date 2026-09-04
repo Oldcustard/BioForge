@@ -9,6 +9,12 @@ namespace BioForge::Config
     {
         Settings g_settings{};
 
+        // Re-reading is ~9 round trips through SkyrimNet's config store. That
+        // is nothing once a second and silly once a frame.
+        constexpr auto kRefreshInterval = std::chrono::milliseconds{ 1000 };
+
+        std::chrono::steady_clock::time_point g_lastRead{};
+
         // SkyrimNet hands config values back as strings. Anything we cannot parse
         // keeps the compiled-in default rather than silently becoming zero.
         float ReadFloat(const char* a_path, float a_fallback)
@@ -55,32 +61,67 @@ namespace BioForge::Config
         }
     }
 
+    namespace
+    {
+        Settings ReadAll()
+        {
+            const Settings defaults{};
+
+            Settings s{};
+            s.scanRadius  = ReadFloat("scan.radius", defaults.scanRadius);
+            s.cellOnly    = ReadBool("scan.cellOnly", defaults.cellOnly);
+            s.uniqueOnly  = ReadBool("scan.uniqueOnly", defaults.uniqueOnly);
+            s.includeDead = ReadBool("scan.includeDead", defaults.includeDead);
+
+            s.maxConcurrent =
+                std::clamp(ReadInt("generate.maxConcurrent", defaults.maxConcurrent), 1, 8);
+
+            s.refinePass = ReadBool("generate.refinePass", defaults.refinePass);
+
+            s.digestEnabled   = ReadBool("digest.enabled", defaults.digestEnabled);
+            s.digestAutoBuild = ReadBool("digest.autoBuild", defaults.digestAutoBuild);
+            s.digestMaxCandidates = std::clamp(
+                ReadInt("digest.maxCandidates", defaults.digestMaxCandidates), 20, 400);
+            return s;
+        }
+
+        void LogSettings(const char* a_what)
+        {
+            logs::info("{}: radius={:.0f} cellOnly={} uniqueOnly={} includeDead={}"
+                       " maxConcurrent={} refinePass={}"sv,
+                       a_what, g_settings.scanRadius, g_settings.cellOnly,
+                       g_settings.uniqueOnly, g_settings.includeDead,
+                       g_settings.maxConcurrent, g_settings.refinePass);
+            logs::info("{}: digest enabled={} autoBuild={} maxCandidates={}"sv,
+                       a_what, g_settings.digestEnabled, g_settings.digestAutoBuild,
+                       g_settings.digestMaxCandidates);
+        }
+    }
+
     void Load()
     {
-        const Settings defaults{};
-        g_settings.scanRadius  = ReadFloat("scan.radius", defaults.scanRadius);
-        g_settings.cellOnly    = ReadBool("scan.cellOnly", defaults.cellOnly);
-        g_settings.uniqueOnly  = ReadBool("scan.uniqueOnly", defaults.uniqueOnly);
-        g_settings.includeDead = ReadBool("scan.includeDead", defaults.includeDead);
+        g_settings = ReadAll();
+        g_lastRead = std::chrono::steady_clock::now();
+        LogSettings("config");
+    }
 
-        g_settings.maxConcurrent =
-            std::clamp(ReadInt("generate.maxConcurrent", defaults.maxConcurrent), 1, 8);
+    void Refresh()
+    {
+        const auto now = std::chrono::steady_clock::now();
+        if (now - g_lastRead < kRefreshInterval) {
+            return;
+        }
+        g_lastRead = now;
 
-        g_settings.refinePass = ReadBool("generate.refinePass", defaults.refinePass);
-        g_settings.reloadPrompts = ReadBool("commit.reloadPrompts", defaults.reloadPrompts);
+        auto next = ReadAll();
+        if (next == g_settings) {
+            return;   // the common case: say nothing
+        }
+        g_settings = next;
 
-        g_settings.digestEnabled   = ReadBool("digest.enabled", defaults.digestEnabled);
-        g_settings.digestAutoBuild = ReadBool("digest.autoBuild", defaults.digestAutoBuild);
-        g_settings.digestMaxCandidates = std::clamp(
-            ReadInt("digest.maxCandidates", defaults.digestMaxCandidates), 20, 400);
-
-        logs::info("config: radius={:.0f} cellOnly={} uniqueOnly={} includeDead={} maxConcurrent={} refinePass={} reloadPrompts={}"sv,
-                   g_settings.scanRadius, g_settings.cellOnly,
-                   g_settings.uniqueOnly, g_settings.includeDead, g_settings.maxConcurrent,
-                   g_settings.refinePass, g_settings.reloadPrompts);
-        logs::info("config: digest enabled={} autoBuild={} maxCandidates={}"sv,
-                   g_settings.digestEnabled, g_settings.digestAutoBuild,
-                   g_settings.digestMaxCandidates);
+        // Worth a line. A setting changing under a running session is exactly
+        // the sort of thing you want to find in the log afterwards.
+        LogSettings("config changed");
     }
 
     const Settings& Get() { return g_settings; }
