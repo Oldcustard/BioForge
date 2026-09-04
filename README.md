@@ -29,6 +29,9 @@ Open SKSE Menu Framework's mod control panel (default **`x`**, set in
      [have] Uthgerd the Unbroken ref=00091918 base=0001A67F Skyrim.esm         race=NordRace    dist=  486 bio='uthgerd_the_unbroken_918'
    ```
 
+   The scan is a snapshot of the room you took it in, and clears itself when you leave,
+   so the table never describes somewhere you have walked out of.
+
 2. **Generate**, one NPC at a time or the whole cell at once. Requests run a couple at
    a time so a busy inn doesn't turn into a burst of simultaneous LLM calls.
 
@@ -44,6 +47,17 @@ Open SKSE Menu Framework's mod control panel (default **`x`**, set in
 5. **Commit.** Writes the bio and asks SkyrimNet to reload its prompt cache, so the
    character speaks with their new personality without restarting the game. Any
    existing file is backed up first as `<name>.prompt.backup.<unixtime>`.
+
+6. **Clear up.** **Discard** throws away a staged bio you don't want — it is the only
+   copy, so that is the end of it. **Dismiss** takes a committed one off the review
+   list and leaves the written bio exactly where it is; **Clear committed** does the
+   whole finished batch in one press. Nothing here can delete a bio you have committed.
+
+A bio is written around where someone lives and works — read from their AI packages and
+from where the game placed them — not from wherever the scan happened to catch them.
+Someone found mid-errand in a tavern is written as who they are rather than as a regular,
+and where the record genuinely says nothing, the prompt is told that too instead of being
+left to guess from the room.
 
 Staged work lives in `SKSE/Plugins/SkyrimNet/prompts/bioforge_staging/<name>/` and
 holds three files — `harvest.json` (what the model was asked), `response.raw.txt`
@@ -67,10 +81,15 @@ The candidates it chooses from are **your own installed bios**, so the sheet ref
 your actual load order, mod-added characters included. Bios naming the settlement come
 first; if too few do, it tops up from the surrounding hold.
 
+A settlement here means a city, town or village — or a standalone inn or farmstead out
+on the road, which gets its own sheet rather than borrowing the hold's. Nightgate Inn is
+about the people at Nightgate Inn, not about Dawnstar.
+
 Run a batch in a town with no digest yet and Bio Forge builds one first, holding the
 batch until it lands — the panel says so while it waits. Generating a single NPC never
 spends that extra call; it uses a digest if one is already there. There is a **Build
-digest** button for doing it deliberately, and **Rebuild** to replace one.
+digest** button for doing it deliberately, **View digest** to read the sheet you are about
+to generate against, and **Rebuild** to replace one.
 
 Sheets are cached at `SKSE/Plugins/BioForge/regions/<Settlement>.txt`. They are plain
 text — read them, and delete one if you don't like it.
@@ -88,9 +107,8 @@ text — read them, and delete one if you don't like it.
   Virtual-Key code while CommonLibSSE reports DirectInput scan codes — so two hotkey
   settings sitting side by side would not even agree on what "F10" means.)
 
-SkyrimNet's loopback web server is used to reload the prompt cache after a commit. If
-it is off, the commit still succeeds and says so — the bio just needs a restart to
-become live.
+A committed bio goes live straight away — SkyrimNet loads a character template on demand
+and watches it for changes, so there is no cache to rebuild and no restart to sit through.
 
 ## Install
 
@@ -123,10 +141,21 @@ manifest degrades to defaults rather than failing.
 | Build digest before a batch | `digest.autoBuild` | `true` |
 | Bios harvested per digest | `digest.maxCandidates` | `120` |
 
+Change a setting in SkyrimNet's panel and Bio Forge picks it up within a second — no
+restart, nothing to press. A change that actually moves a value is written to
+`BioForge.log` as `config changed:`. A batch already running keeps the settings it
+started with.
+
 `scan.uniqueOnly` defaults on because generic leveled actors share base records and
 are correctly served by SkyrimNet's generic fallback. It also affects reporting: a
 leveled actor's editor base is a template shell whose race and sex fields are
 placeholders, so the race column is only trustworthy for unique NPCs.
+
+The scan's **Template** column is SkyrimNet's assigned name for that character, which
+exists whether or not the bio file does — so a row can read "missing" and still show a
+name. Where SkyrimNet has assigned nothing, the column shows the name Bio Forge would
+derive on commit instead, dimmed and marked with `*`. Either way the column tells you
+what committing that row would write.
 
 `generate.maxConcurrent` is the one to lower if your provider rate-limits you, and to
 raise if you are running a local model.
@@ -167,7 +196,6 @@ dll-source/src/ScopeSelector.{h,cpp}       actor enumeration + gap detection
 dll-source/src/Generator.{h,cpp}           context assembly, queue, dispatch
 dll-source/src/RegionDigest.{h,cpp}        per-settlement reference sheet
 dll-source/src/StagingStore.{h,cpp}        response parsing, staging bundle, commit
-dll-source/src/PromptReload.{h,cpp}        loopback prompt-cache reload
 dll-source/src/Json.h                      context escaping; there is no JSON library
 mod-root/                                  files shipped verbatim into the mod
 tools/render_probe.py                      prompt iteration against the live game
