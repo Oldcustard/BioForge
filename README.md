@@ -135,7 +135,7 @@ manifest degrades to defaults rather than failing.
 | Current cell only | `scan.cellOnly` | `true` |
 | Unique NPCs only | `scan.uniqueOnly` | `true` |
 | Include dead | `scan.includeDead` | `false` |
-| Concurrent generations | `generate.maxConcurrent` | `2` |
+| Concurrent generations | `generate.maxConcurrent` | `4` |
 | Refine ties after a batch | `generate.refinePass` | `true` |
 | Use regional digests | `digest.enabled` | `true` |
 | Build digest before a batch | `digest.autoBuild` | `true` |

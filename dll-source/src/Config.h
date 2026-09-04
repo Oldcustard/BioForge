@@ -20,9 +20,11 @@ namespace BioForge::Config
 
         // How many bio generations may be in flight at once. A batch over a
         // busy cell is otherwise a burst of simultaneous LLM calls, which is
-        // the fastest way to meet a provider's rate limit. Two keeps the queue
-        // moving without looking like an attack.
-        int maxConcurrent = 2;
+        // the fastest way to meet a provider's rate limit. Four measured well
+        // on a real batch - four bios staged inside five seconds with nothing
+        // refused - and it is still short of a burst. Lower it on a strict
+        // endpoint; the clamp allows up to 8.
+        int maxConcurrent = 4;
 
         // Hand every bio a short reference sheet of who matters in the
         // settlement it is being written in. Off means bios are written from

@@ -233,6 +233,10 @@ namespace BioForge::Generator
         std::mutex      g_queueMutex;
         std::deque<Job> g_queue;
         int             g_inFlight = 0;
+        // How many of those are pass two. A batch never mixes the two kinds -
+        // RunRefinePass only dispatches once nothing is in flight - so this is
+        // really "the panel should say revising, not generating".
+        int             g_refineInFlight = 0;
 
         // A batch held back until its region digest lands. These stay
         // Candidates rather than Jobs because assembling a job reads game
@@ -263,6 +267,7 @@ namespace BioForge::Generator
                 {
                     std::lock_guard lock{ g_queueMutex };
                     --g_inFlight;
+                    --g_refineInFlight;
                 }
                 Pump();
                 return;
@@ -299,6 +304,9 @@ namespace BioForge::Generator
                     job = std::move(g_queue.front());
                     g_queue.pop_front();
                     ++g_inFlight;
+                    if (job.kind == Kind::Refine) {
+                        ++g_refineInFlight;
+                    }
                 }
 
                 // A refine must NOT call Begin: the entry already exists and
@@ -324,6 +332,9 @@ namespace BioForge::Generator
                     {
                         std::lock_guard lock{ g_queueMutex };
                         --g_inFlight;
+                        if (job.kind == Kind::Refine) {
+                            --g_refineInFlight;
+                        }
                     }
                     continue;   // the loop takes the next one; no recursion
                 }
@@ -648,6 +659,11 @@ namespace BioForge::Generator
         progress.pending       = static_cast<int>(g_pending.size());
         progress.pendingRegion = g_pendingRegion;
         progress.awaitingRevision = static_cast<int>(g_refineWatch.size());
+        progress.revising = g_refineInFlight +
+                            static_cast<int>(std::count_if(g_queue.begin(), g_queue.end(),
+                                                           [](const Job& a_job) {
+                                                               return a_job.kind == Kind::Refine;
+                                                           }));
         return progress;
     }
 

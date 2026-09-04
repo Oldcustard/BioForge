@@ -63,8 +63,8 @@ schema:
     - name: "Concurrent Generations"
       path: "generate.maxConcurrent"
       type: "int"
-      description: "How many bios may be generated at once when running a batch. Each one is a full LLM request, so raising this speeds a large batch up but is also the quickest way to hit a provider's rate limit. Two is a safe default; lower it to 1 on a strict endpoint, raise it if you are running a local model."
-      defaultValue: 2
+      description: "How many bios may be generated at once when running a batch. Each one is a full LLM request, so raising this speeds a large batch up but is also the quickest way to hit a provider's rate limit. Four is a good default for a hosted endpoint; lower it to 1 or 2 if yours is strict about rate limits, raise it if you are running a local model."
+      defaultValue: 4
       min: 1
       max: 8
       category: "Generation"

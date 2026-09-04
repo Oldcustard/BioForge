@@ -459,6 +459,15 @@ namespace BioForge::UI
                     ImGuiMCP::TextColored(kGapColour,
                                           "Waiting on the %s digest: %d bio(s) queued behind it",
                                           progress.pendingRegion.c_str(), progress.pending);
+                } else if (progress.revising > 0) {
+                    // Pass two, running. Calling this "generating" was a lie
+                    // twice over: nothing new is being written, and the counts
+                    // are of relationship blocks rather than bios.
+                    // A refine pass only starts once nothing else is in
+                    // flight, so during one every job of either count is a
+                    // refine and the plain totals are the honest ones.
+                    ImGuiMCP::TextColored(kGapColour, "Revising ties: %d in flight, %d queued",
+                                          progress.inFlight, progress.queued);
                 } else if (progress.awaitingRevision > 0) {
                     // The refine pass is not a footnote: with it off, a batch's
                     // NPCs know nothing about each other. Saying so stops the

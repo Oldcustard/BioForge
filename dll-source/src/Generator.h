@@ -29,6 +29,10 @@ namespace BioForge
             // went quiet while a whole second pass was still to come.
             int awaitingRevision{};
 
+            // Pass-two jobs actually running or queued. Distinct from
+            // awaitingRevision, which is the ones not yet turned into jobs.
+            int revising{};
+
             [[nodiscard]] bool Busy() const
             {
                 return inFlight > 0 || queued > 0 || pending > 0 || awaitingRevision > 0;
