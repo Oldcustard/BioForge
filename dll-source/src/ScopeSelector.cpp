@@ -3,6 +3,7 @@
 #include "ScopeSelector.h"
 #include "Config.h"
 #include "SkyrimNetAPI.h"
+#include "StagingStore.h"
 
 namespace BioForge
 {
@@ -113,6 +114,10 @@ namespace BioForge
             c.distance     = player->GetPosition().GetDistance(a_ref->GetPosition());
             c.bioTemplate  = SN::BioTemplateName(c.refFormID);
             c.bioFileExists = BioFileExists(c.bioTemplate);
+            c.trackedBySkyrimNet = SN::FormIDToUUID(c.refFormID) != 0;
+            // Resolved once here rather than per frame: the panel renders this
+            // for every row, and Render() must stay cheap.
+            c.wouldWriteAs = Staging::BioFileName(c);
 
             out.push_back(std::move(c));
             return RE::BSContainer::ForEachResult::kContinue;
