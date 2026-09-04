@@ -22,9 +22,16 @@ namespace BioForge
 
             std::string pendingRegion;
 
+            // Bios staged with a neighbour still unwritten, waiting for the
+            // batch to settle so their relationships block can be re-asked.
+            // Not jobs yet and not in the queue - RunRefinePass turns them into
+            // jobs only once nothing is in flight - so without this the panel
+            // went quiet while a whole second pass was still to come.
+            int awaitingRevision{};
+
             [[nodiscard]] bool Busy() const
             {
-                return inFlight > 0 || queued > 0 || pending > 0;
+                return inFlight > 0 || queued > 0 || pending > 0 || awaitingRevision > 0;
             }
         };
 

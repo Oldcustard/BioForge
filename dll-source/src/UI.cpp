@@ -21,6 +21,20 @@ namespace BioForge::UI
         std::vector<Candidate> g_results;
         bool                   g_hasScanned = false;
 
+        // The cell the scan was taken in. A scan is a snapshot of one room:
+        // its rows carry distances from where the player stood, and its
+        // Generate buttons point at actors who may now be a load door away.
+        // Kept as a FormID rather than a pointer - an unloaded cell would
+        // leave a dangling one.
+        std::uint32_t g_scanCell = 0;
+
+        std::uint32_t CurrentCellID()
+        {
+            auto* player = RE::PlayerCharacter::GetSingleton();
+            auto* cell   = player ? player->GetParentCell() : nullptr;
+            return cell ? cell->GetFormID() : 0;
+        }
+
         constexpr ImGuiMCP::ImVec4 kGapColour{ 1.00f, 0.72f, 0.30f, 1.0f };
         constexpr ImGuiMCP::ImVec4 kHaveColour{ 0.55f, 0.80f, 0.55f, 1.0f };
 
@@ -60,6 +74,57 @@ namespace BioForge::UI
         // piece of context that is shared, cached and expensive - the user
         // should be able to see whether the bios they are about to generate
         // will have it, before spending the calls.
+        // Set by the View button, consumed next frame to open the modal - the
+        // same one-shot the bio reader uses.
+        bool g_openDigestReader = false;
+
+        // The digest is the one piece of context that is shared, cached and
+        // paid for once, so being able to read the thing before spending a
+        // batch against it matters more than for any single bio. It is on disk
+        // as plain text, but nobody should have to go and find the file.
+        void DrawDigestReader(const std::string& a_region, const std::string& a_digest)
+        {
+            constexpr auto kDigestTitle = "Bio Forge - regional digest";
+
+            if (g_openDigestReader) {
+                ImGuiMCP::OpenPopup(kDigestTitle);
+                g_openDigestReader = false;
+            }
+
+            ImGuiMCP::SetNextWindowSize(ImGuiMCP::ImVec2(760.0f, 520.0f),
+                                        ImGuiMCP::ImGuiCond_Appearing);
+            if (!ImGuiMCP::BeginPopupModal(kDigestTitle, nullptr, 0)) {
+                return;
+            }
+
+            ImGuiMCP::Text("%s", a_region.c_str());
+            ImGuiMCP::TextDisabled("Injected into every bio generated here.");
+            ImGuiMCP::Separator();
+
+            // Reserve the last line for the buttons; the rest scrolls.
+            if (ImGuiMCP::BeginChild("bioforge_digest_text", ImGuiMCP::ImVec2(0.0f, -36.0f))) {
+                if (a_digest.empty()) {
+                    ImGuiMCP::TextDisabled("(nothing cached)");
+                } else {
+                    ImGuiMCP::PushTextWrapPos(0.0f);
+                    // "%s" matters: a digest line may contain a literal '%'.
+                    ImGuiMCP::TextWrapped("%s", a_digest.c_str());
+                    ImGuiMCP::PopTextWrapPos();
+                }
+            }
+            ImGuiMCP::EndChild();
+
+            ImGuiMCP::Separator();
+            if (ImGuiMCP::Button("Copy")) {
+                ImGuiMCP::SetClipboardText(a_digest.c_str());
+            }
+            ImGuiMCP::SameLine();
+            if (ImGuiMCP::Button("Close")) {
+                ImGuiMCP::CloseCurrentPopup();
+            }
+            ImGuiMCP::EndPopup();
+        }
+
         void DrawRegion()
         {
             const auto& cfg = Config::Get();
@@ -94,10 +159,19 @@ namespace BioForge::UI
                 ImGuiMCP::TextColored(kHaveColour, "- digest ready");
             }
 
+            if (!digest.empty()) {
+                ImGuiMCP::SameLine();
+                if (ImGuiMCP::Button("View digest")) {
+                    g_openDigestReader = true;
+                }
+            }
+
             ImGuiMCP::SameLine();
             if (ImGuiMCP::Button(digest.empty() ? "Build digest" : "Rebuild digest")) {
                 RegionDigest::Build(region, !digest.empty());
             }
+
+            DrawDigestReader(region.name, digest);
         }
 
         void DrawResults(const std::vector<Staging::Entry>& a_staged)
@@ -110,8 +184,24 @@ namespace BioForge::UI
             const auto gaps = std::count_if(g_results.begin(), g_results.end(),
                                             [](const Candidate& c) { return c.IsGap(); });
 
+            const auto blocked = std::count_if(g_results.begin(), g_results.end(),
+                                               [](const Candidate& c) {
+                                                   return c.IsGap() && !c.CanGenerate();
+                                               });
+
             ImGuiMCP::Text("%zu actor(s), %lld without a bio", g_results.size(),
                            static_cast<long long>(gaps));
+            if (blocked > 0) {
+                ImGuiMCP::SameLine();
+                ImGuiMCP::TextDisabled("- %lld of them not tracked by SkyrimNet",
+                                       static_cast<long long>(blocked));
+                if (ImGuiMCP::IsItemHovered()) {
+                    ImGuiMCP::SetTooltip(
+                        "SkyrimNet has never registered these actors, so it has no UUID for\n"
+                        "them and a generation cannot be dispatched. Talk to them, or get\n"
+                        "closer, then scan again.");
+                }
+            }
 
             if (g_results.empty()) {
                 ImGuiMCP::TextWrapped("Nothing matched. Widen the radius, turn off 'Current Cell Only', "
@@ -162,15 +252,48 @@ namespace BioForge::UI
                 ImGuiMCP::Text("%.0f", c.distance);
 
                 ImGuiMCP::TableNextColumn();
-                if (c.bioTemplate.empty()) {
-                    ImGuiMCP::TextDisabled("(none)");
-                } else {
+                if (!c.bioTemplate.empty()) {
                     ImGuiMCP::Text("%s", c.bioTemplate.c_str());
+                } else if (!c.CanGenerate()) {
+                    // Showing the derived name here would promise something
+                    // that cannot happen: with no UUID there is nothing to
+                    // generate, so there will never be a bio to commit.
+                    ImGuiMCP::TextDisabled("not tracked");
+                    if (ImGuiMCP::IsItemHovered()) {
+                        ImGuiMCP::SetTooltip(
+                            "SkyrimNet has not registered this actor, so it has neither a\n"
+                            "template name nor a UUID. Nothing can be generated until it does.");
+                    }
+                } else {
+                    // An empty template is not the same as no bio: SkyrimNet
+                    // assigns the name when it first registers an actor, and
+                    // writes the file later, so "missing" rows come both with
+                    // a name and without one. "(none)" reported the absence
+                    // and left the reader to guess the consequence. Show the
+                    // name a commit would derive instead - dimmed and marked,
+                    // because it is our fallback rather than SkyrimNet's word.
+                    ImGuiMCP::TextDisabled("%s *", c.wouldWriteAs.c_str());
+                    if (ImGuiMCP::IsItemHovered()) {
+                        ImGuiMCP::SetTooltip(
+                            "SkyrimNet has not assigned this actor a template name.\n"
+                            "Committing would write %s.prompt.",
+                            c.wouldWriteAs.c_str());
+                    }
                 }
 
                 ImGuiMCP::TableNextColumn();
                 if (IsGenerating(c.refFormID, a_staged)) {
                     ImGuiMCP::TextDisabled("working...");
+                } else if (!c.CanGenerate()) {
+                    // The button used to be here and did nothing at all: the
+                    // job was dropped in BuildContext for want of a UUID, and
+                    // the only trace was a line in the log.
+                    ImGuiMCP::TextDisabled("unavailable");
+                    if (ImGuiMCP::IsItemHovered()) {
+                        ImGuiMCP::SetTooltip(
+                            "SkyrimNet is not tracking this actor, so there is no UUID to\n"
+                            "generate against. Talk to them or get closer, then scan again.");
+                    }
                 } else if (ImGuiMCP::Button("Generate")) {
                     Generator::Generate(c, g_results);
                 }
@@ -290,7 +413,15 @@ namespace BioForge::UI
             }
             ImGuiMCP::SameLine();
 
-            if (ImGuiMCP::Button("Discard")) {
+            const bool drop = ImGuiMCP::Button(sel->committed ? "Dismiss" : "Discard");
+            if (ImGuiMCP::IsItemHovered()) {
+                ImGuiMCP::SetTooltip(
+                    sel->committed
+                        ? "Take it off the review list. The committed bio stays where it is."
+                        : "Delete the staged bio. It has not been committed, so this is the "
+                          "only copy.");
+            }
+            if (drop) {
                 Staging::Discard(*sel);
                 g_selected  = 0;
                 g_bufferFor = 0;
@@ -328,6 +459,13 @@ namespace BioForge::UI
                     ImGuiMCP::TextColored(kGapColour,
                                           "Waiting on the %s digest: %d bio(s) queued behind it",
                                           progress.pendingRegion.c_str(), progress.pending);
+                } else if (progress.awaitingRevision > 0) {
+                    // The refine pass is not a footnote: with it off, a batch's
+                    // NPCs know nothing about each other. Saying so stops the
+                    // panel looking finished while a second pass is still due.
+                    ImGuiMCP::TextColored(
+                        kGapColour, "Generating: %d in flight, %d queued, %d awaiting revision",
+                        progress.inFlight, progress.queued, progress.awaitingRevision);
                 } else {
                     ImGuiMCP::TextColored(kGapColour, "Generating: %d in flight, %d queued",
                                           progress.inFlight, progress.queued);
@@ -402,6 +540,64 @@ namespace BioForge::UI
                 ImGuiMCP::PopID();
             }
 
+            // Two words, because the consequences are not the same one.
+            // Discarding an uncommitted bio destroys the only copy there is;
+            // dismissing a committed one only stops listing finished work, and
+            // prompts/characters is untouched either way. Calling both of them
+            // "Discard" - and only offering it inside the reader - is why a
+            // committed entry looked like it was stuck in the list for good.
+            // Never offered mid-generation: the completion callback still has
+            // to find its entry.
+            if (sel && sel->state != Staging::State::Generating) {
+                ImGuiMCP::SameLine();
+                ImGuiMCP::PushID(static_cast<int>(sel->refFormID));
+                const bool drop = ImGuiMCP::Button(sel->committed ? "Dismiss" : "Discard");
+                if (ImGuiMCP::IsItemHovered()) {
+                    ImGuiMCP::SetTooltip(
+                        sel->committed
+                            ? "Take it off this list. The committed bio stays where it is."
+                            : "Delete the staged bio. It has not been committed, so this is "
+                              "the only copy.");
+                }
+                if (drop) {
+                    Staging::Discard(*sel);
+                    g_selected  = 0;
+                    g_bufferFor = 0;
+                }
+                ImGuiMCP::PopID();
+            }
+
+            const auto committed = std::count_if(
+                a_staged.begin(), a_staged.end(),
+                [](const Staging::Entry& e) { return e.committed; });
+
+            if (committed > 0) {
+                char label[48]{};
+                std::snprintf(label, sizeof(label), "Clear committed (%lld)",
+                              static_cast<long long>(committed));
+                ImGuiMCP::SameLine();
+                const bool clear = ImGuiMCP::Button(label);
+                if (ImGuiMCP::IsItemHovered()) {
+                    ImGuiMCP::SetTooltip(
+                        "Drop every committed entry from the list at once.\n"
+                        "The bios themselves are already written and are left alone.");
+                }
+                if (clear) {
+                    // a_staged is this frame's snapshot, not the store, so
+                    // discarding while walking it is safe.
+                    for (const auto& e : a_staged) {
+                        if (!e.committed) {
+                            continue;
+                        }
+                        if (e.refFormID == g_selected) {
+                            g_selected  = 0;
+                            g_bufferFor = 0;
+                        }
+                        Staging::Discard(e);
+                    }
+                }
+            }
+
             DrawReader(a_staged);
         }
 
@@ -415,6 +611,26 @@ namespace BioForge::UI
             // open - which is where you pressed the button and are watching it.
             Generator::Tick();
 
+            // Settings are re-read here, so changing one in SkyrimNet's panel
+            // takes effect on the next frame rather than the next launch, and
+            // without the user having to ask for it. Throttled inside Refresh()
+            // and silent unless something moved. Skipped mid-batch because Pump
+            // reads maxConcurrent from a completion callback on a worker
+            // thread; a batch keeps the settings it started with either way.
+            if (!Generator::GetProgress().Busy()) {
+                Config::Refresh();
+
+                // Drop a scan the player has walked out of, rather than leave
+                // rows describing a room they have left. Not while a batch is
+                // live: the roster was snapshotted when it started, and the
+                // reader's Regenerate resolves its candidate out of this list.
+                if (g_hasScanned && CurrentCellID() != g_scanCell) {
+                    g_results.clear();
+                    g_hasScanned = false;
+                    g_scanCell   = 0;
+                }
+            }
+
             DrawStatus();
             if (SN::Available()) {
                 DrawRegion();
@@ -424,6 +640,7 @@ namespace BioForge::UI
             if (ImGuiMCP::Button("Scan for missing bios")) {
                 g_results    = Scan();
                 g_hasScanned = true;
+                g_scanCell   = CurrentCellID();
                 LogGapReport(g_results);
             }
             ImGuiMCP::SameLine();
@@ -438,10 +655,19 @@ namespace BioForge::UI
             const auto staged = Staging::Snapshot();
 
             if (g_hasScanned) {
+                // Untracked actors are filtered out HERE rather than inside
+                // the batch, so the button's count is what will actually be
+                // generated. It used to promise six and quietly deliver three.
                 std::vector<Candidate> gaps;
+                std::size_t            blocked = 0;
                 for (const auto& c : g_results) {
-                    if (c.IsGap()) {
+                    if (!c.IsGap()) {
+                        continue;
+                    }
+                    if (c.CanGenerate()) {
                         gaps.push_back(c);
+                    } else {
+                        ++blocked;
                     }
                 }
 
@@ -454,6 +680,11 @@ namespace BioForge::UI
                     }
                     ImGuiMCP::SameLine();
                     ImGuiMCP::TextDisabled("(%d at a time)", Config::Get().maxConcurrent);
+                }
+                if (blocked > 0) {
+                    ImGuiMCP::TextDisabled(
+                        "%zu more cannot be generated: SkyrimNet is not tracking them.",
+                        blocked);
                 }
             }
 

@@ -647,6 +647,7 @@ namespace BioForge::Generator
         progress.queued        = static_cast<int>(g_queue.size());
         progress.pending       = static_cast<int>(g_pending.size());
         progress.pendingRegion = g_pendingRegion;
+        progress.awaitingRevision = static_cast<int>(g_refineWatch.size());
         return progress;
     }
 
