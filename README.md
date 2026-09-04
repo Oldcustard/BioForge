@@ -50,8 +50,11 @@ Open SKSE Menu Framework's mod control panel (default **`x`**, set in
 
 6. **Clear up.** **Discard** throws away a staged bio you don't want — it is the only
    copy, so that is the end of it. **Dismiss** takes a committed one off the review
-   list and leaves the written bio exactly where it is; **Clear committed** does the
-   whole finished batch in one press. Nothing here can delete a bio you have committed.
+   list and leaves the written bio exactly where it is. In bulk: **Commit all** writes
+   every staged bio that is not committed yet, **Clear committed** drops the finished
+   ones from the list, and **Discard all** empties it — that last one asks first, and
+   tells you how many uncommitted bios are at stake. Nothing here can delete a bio you
+   have committed.
 
 A bio is written around where someone lives and works — read from their AI packages and
 from where the game placed them — not from wherever the scan happened to catch them.

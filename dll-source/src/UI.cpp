@@ -313,6 +313,7 @@ namespace BioForge::UI
         bool          g_bufferIsRaw = false;
         bool          g_showRaw     = false;
         bool          g_openReader  = false;     // request to open the overlay
+        bool          g_openDiscardAll = false;  // ditto, for the bulk confirm
 
         void FillReviewBuffer(const Staging::Entry& a_entry, bool a_raw)
         {
@@ -449,6 +450,57 @@ namespace BioForge::UI
             ImGuiMCP::EndPopup();
         }
 
+        // Discarding one bio is a small mistake; discarding a whole batch is
+        // a dozen LLM calls, so this one asks. The count of what is actually
+        // at risk is in the question, because "committed bios stay on disk" is
+        // the half people forget.
+        void DrawDiscardAllConfirm(const std::vector<Staging::Entry>& a_staged,
+                                   std::ptrdiff_t                     a_uncommitted)
+        {
+            constexpr auto kConfirmTitle = "Bio Forge - discard all?";
+
+            if (g_openDiscardAll) {
+                ImGuiMCP::OpenPopup(kConfirmTitle);
+                g_openDiscardAll = false;
+            }
+            if (!ImGuiMCP::BeginPopupModal(kConfirmTitle, nullptr, 0)) {
+                return;
+            }
+
+            if (a_uncommitted > 0) {
+                ImGuiMCP::TextColored(kGapColour, "%lld staged bio(s) have not been committed.",
+                                      static_cast<long long>(a_uncommitted));
+                ImGuiMCP::Text("Discarding them deletes the only copy there is.");
+            } else {
+                ImGuiMCP::Text("Nothing here is uncommitted.");
+            }
+            ImGuiMCP::TextDisabled("Bios already committed stay in prompts/characters.");
+            ImGuiMCP::Separator();
+
+            if (ImGuiMCP::Button("Discard them")) {
+                std::size_t dropped = 0;
+                for (const auto& e : a_staged) {
+                    // A generation still in flight keeps its entry: the
+                    // completion callback has to find it.
+                    if (e.state == Staging::State::Generating) {
+                        continue;
+                    }
+                    Staging::Discard(e);
+                    ++dropped;
+                }
+                g_selected  = 0;
+                g_bufferFor = 0;
+                logs::info("staging: discarded {} entr{} in one press"sv, dropped,
+                           dropped == 1 ? "y" : "ies");
+                ImGuiMCP::CloseCurrentPopup();
+            }
+            ImGuiMCP::SameLine();
+            if (ImGuiMCP::Button("Keep them")) {
+                ImGuiMCP::CloseCurrentPopup();
+            }
+            ImGuiMCP::EndPopup();
+        }
+
         void DrawReview(const std::vector<Staging::Entry>& a_staged)
         {
             ImGuiMCP::Separator();
@@ -576,15 +628,72 @@ namespace BioForge::UI
                 ImGuiMCP::PopID();
             }
 
+            // --- bulk actions, on their own row ---
+            //
+            // A batch is the normal unit of work here: you generate eight and
+            // then agree with eight, or with none. Doing that one selection at
+            // a time is the tedium this panel exists to remove.
             const auto committed = std::count_if(
                 a_staged.begin(), a_staged.end(),
                 [](const Staging::Entry& e) { return e.committed; });
+            const auto uncommitted = std::count_if(
+                a_staged.begin(), a_staged.end(), [](const Staging::Entry& e) {
+                    return e.state == Staging::State::Staged && !e.committed;
+                });
+            const auto removable = std::count_if(
+                a_staged.begin(), a_staged.end(), [](const Staging::Entry& e) {
+                    return e.state != Staging::State::Generating;
+                });
+
+            if (uncommitted > 0) {
+                char label[48]{};
+                std::snprintf(label, sizeof(label), "Commit all (%lld)",
+                              static_cast<long long>(uncommitted));
+                const bool commitAll = ImGuiMCP::Button(label);
+                if (ImGuiMCP::IsItemHovered()) {
+                    ImGuiMCP::SetTooltip(
+                        "Write every staged bio that has not been committed yet.\n"
+                        "Already-committed entries are left alone rather than "
+                        "re-committed.");
+                }
+                if (commitAll) {
+                    std::size_t done = 0;
+                    for (const auto& e : a_staged) {
+                        if (e.state != Staging::State::Staged || e.committed) {
+                            continue;
+                        }
+                        std::string note;
+                        if (Staging::Commit(e, note)) {
+                            ++done;
+                        }
+                    }
+                    logs::info("commit: committed {} of {} staged bio(s) in one press"sv,
+                               done, static_cast<std::size_t>(uncommitted));
+                }
+                ImGuiMCP::SameLine();
+            }
+
+            if (removable > 0) {
+                char label[48]{};
+                std::snprintf(label, sizeof(label), "Discard all (%lld)",
+                              static_cast<long long>(removable));
+                if (ImGuiMCP::Button(label)) {
+                    // Confirmed, because uncommitted bios are an LLM call each
+                    // and this is one press away from destroying all of them.
+                    g_openDiscardAll = true;
+                }
+                if (ImGuiMCP::IsItemHovered()) {
+                    ImGuiMCP::SetTooltip(
+                        "Empty the review list. Anything not committed is gone;\n"
+                        "committed bios stay on disk. Asks first.");
+                }
+                ImGuiMCP::SameLine();
+            }
 
             if (committed > 0) {
                 char label[48]{};
                 std::snprintf(label, sizeof(label), "Clear committed (%lld)",
                               static_cast<long long>(committed));
-                ImGuiMCP::SameLine();
                 const bool clear = ImGuiMCP::Button(label);
                 if (ImGuiMCP::IsItemHovered()) {
                     ImGuiMCP::SetTooltip(
@@ -607,6 +716,7 @@ namespace BioForge::UI
                 }
             }
 
+            DrawDiscardAllConfirm(a_staged, uncommitted);
             DrawReader(a_staged);
         }
 
