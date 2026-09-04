@@ -13,6 +13,10 @@
      regionDigest   (string)  bullet lines: who holds power and trade in this
                               settlement, from bioforge_region_digest. Written
                               once per settlement and reused, so it may be ""
+     placement      (string)  bullet lines: home and daily routine, read from
+                              the NPC's AI packages and the reference's editor
+                              location. NEVER empty - when the record says
+                              nothing, it says so in words
 
    ROLE MARKERS ARE MANDATORY. SkyrimNet splits a rendered prompt into chat
    messages on "[ system ]" / "[ user ]" lines. Without them the messages array
@@ -170,20 +174,38 @@ generic one.
 {% endif %}{% if npc.isEssential %}- Flagged essential (story-protected).
 {% endif %}{% if npc.isGuard %}- A guard.
 {% endif %}{% if sourcePlugin %}- Added by the mod: {{ sourcePlugin }}
-{% endif %}- Currently at: {{ get_location(actorUUID) }}
+{% endif %}- Standing right now in: {{ get_location(actorUUID) }}
+  This is where the player walked in on them. See "Where they belong" below
+  before treating it as their home or their work.
 {% if is_follower(actorUUID) %}- TRAVELLING WITH THE PLAYER right now, as a follower or companion. Their current
   location is therefore incidental - they are standing there because the player
   walked them in. Do NOT write this place as their home, their workplace, or
   somewhere they "stay". Where they are from matters; where they are does not.
 {% endif %}
 
+## Where they belong
+{# Injected by the DLL from the NPC's AI packages and the reference's editor
+   location - the template can reach neither. It outranks the "standing right
+   now" line above on purpose. The scan finds people where they happen to be,
+   and that was once the ONLY place a bio was given: a warden of the Hall of
+   Kyne, caught mid-visit to the inn, came back written as a guest boarding
+   there. Her sandbox package named the Hall the whole time. Never empty, so
+   this heading cannot be dropped for an empty body. #}
+{{ placement }}
+
+Their home and their work are the setting for this character. Where they are
+standing is where the player happened to find them and usually deserves no
+sentence at all - name it only if the evidence above puts them there for a
+reason. If the lines above say the record is silent, then say nothing about
+where they live: do NOT promote the place they are standing into a home.
+
 ## Factions
 {# Framework mods (SexLab Aroused and friends) park NPCs in bookkeeping factions
    that say nothing about who they are. Filtering them out matters more for an
    end user's load order than for ours - they would otherwise be the loudest
    "evidence" for an NPC with no real factions. #}
-{% set factionCount = 0 %}{% for f in npc.faction %}{% if length(f) > 0 and not contains(f, "SLA ") and not contains(f, "Arousal") and not contains(f, "SexLab") and not contains(f, "ZAZ") and not contains(f, "DHLP") %}{% set factionCount = factionCount + 1 %}{% endif %}{% endfor %}{% if factionCount == 0 %}- (no meaningful factions)
-{% endif %}{% for f in npc.faction %}{% if length(f) > 0 and not contains(f, "SLA ") and not contains(f, "Arousal") and not contains(f, "SexLab") and not contains(f, "ZAZ") and not contains(f, "DHLP") %}- {{ f }}
+{% set factionCount = 0 %}{% for f in npc.faction %}{% if length(f) > 0 and not contains(f, "SLA ") and not contains(f, "Arousal") and not contains(f, "SexLab") and not contains(f, "ZAZ") and not contains(f, "DHLP") and not contains(f, "StageFaction") and not contains(f, "StageSlotFaction") %}{% set factionCount = factionCount + 1 %}{% endif %}{% endfor %}{% if factionCount == 0 %}- (no meaningful factions)
+{% endif %}{% for f in npc.faction %}{% if length(f) > 0 and not contains(f, "SLA ") and not contains(f, "Arousal") and not contains(f, "SexLab") and not contains(f, "ZAZ") and not contains(f, "DHLP") and not contains(f, "StageFaction") and not contains(f, "StageSlotFaction") %}- {{ f }}
 {% endif %}{% endfor %}
 
 ## Role and employment
@@ -234,7 +256,10 @@ generic one.
 {% endif %}{% for slot, item in worn %}{% if slot != "intimate_area" %}- {{ item.name }}
 {% endif %}{% endfor %}
 
-## Where they are
+## The room they are standing in
+{# Renamed away from "Where they are": it sat one word from "Where they belong"
+   and meant the opposite. This is scenery for the moment of the scan, not a
+   statement about the character. #}
 {% set place = get_current_location_description() %}
 {% if length(place) > 0 %}{{ place }}
 {% else %}(no description available)

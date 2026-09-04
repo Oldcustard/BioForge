@@ -1,6 +1,7 @@
 #include "pch.h"
 
 #include "Generator.h"
+#include "Placement.h"
 
 #include "Config.h"
 #include "Json.h"
@@ -136,6 +137,13 @@ namespace BioForge::Generator
                 ToBullets(ExtractValues(SN::WorldKnowledgeForActor(a_candidate.refFormID, 5),
                                         "content"));
 
+            // Where they BELONG, from their packages and their placement. The
+            // template can fetch where they are STANDING; nothing it can reach
+            // says where they live or work, which is how a warden of the Hall
+            // of Kyne became a guest at the inn she was visiting. Already
+            // bullet lines and never empty, so the heading cannot be dropped.
+            const auto placement = Placement::RoutineOf(a_candidate.refFormID);
+
             // Everyone else standing in the same place, so relationships can
             // name real people. Followers are marked: they are only here
             // because the player walked them in, and writing them into a
@@ -180,6 +188,7 @@ namespace BioForge::Generator
                    + "\"sourcePlugin\":\"" + Json::Escape(a_candidate.sourcePlugin) + "\","
                    + "\"relatedActors\":\"" + Json::Escape(related) + "\","
                    + "\"worldKnowledge\":\"" + Json::Escape(world) + "\","
+                   + "\"placement\":\"" + Json::Escape(placement) + "\","
                    // Who matters in this settlement, written once and reused by
                    // every bio generated here. Already bullet lines, so it is
                    // safe to drop straight into a heading's body.
