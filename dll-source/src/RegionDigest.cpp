@@ -27,13 +27,22 @@ namespace BioForge::RegionDigest
         constexpr auto kVariant = "CharacterProfileGeneration"sv;
 
         // Location keywords marking a place people LIVE in, as opposed to one
-        // building. Deliberately not LocTypeHabitation: that sits on inns and
-        // farms too, and stopping the walk there would key the digest to a
-        // single tavern.
+        // building.
         constexpr std::string_view kSettlementTypes[] = {
             "LocTypeCity"sv, "LocTypeTown"sv, "LocTypeSettlement"sv
         };
         constexpr auto kHoldType = "LocTypeHold"sv;
+
+        // A habitation counts as a settlement only when nothing better sits
+        // above it. The keyword is on inns, farms and player homes INSIDE
+        // cities too, so it can never be a first-class stop - but a
+        // freestanding inn is its own community, and keying one to the hold
+        // was worse than coarse. The harvest is a text match on the key, and
+        // an inn's own cast write "Nightgate", never "The Pale": measured,
+        // hadring_05A named the inn four times and the hold zero. So a digest
+        // built at Nightgate could not see the two people who live there, and
+        // Dawnstar - whose residents do name their hold - took all 45 slots.
+        constexpr auto kHabitationType = "LocTypeHabitation"sv;
 
         // Score bands. A bio naming the settlement always outranks one that
         // only names the hold, so hold-only entries fill leftover room and can
@@ -611,6 +620,7 @@ namespace BioForge::RegionDigest
         }
 
         const RE::BGSLocation* settlement = nullptr;
+        const RE::BGSLocation* habitation = nullptr;
         const RE::BGSLocation* hold       = nullptr;
         const RE::BGSLocation* top        = location;
 
@@ -622,6 +632,9 @@ namespace BioForge::RegionDigest
             if (!settlement && IsSettlement(location)) {
                 settlement = location;
             }
+            if (!habitation && location->HasKeywordString(kHabitationType)) {
+                habitation = location;
+            }
             if (!hold && location->HasKeywordString(kHoldType)) {
                 hold = location;
             }
@@ -630,9 +643,15 @@ namespace BioForge::RegionDigest
         }
 
         Region region;
-        // Some mod settlements parent straight to a hold, or to nothing at all;
+        // Settlement first, so the Bee and Barb still keys to Riften - a
+        // habitation only wins when the whole chain above it held no
+        // settlement, which is exactly what "freestanding" means. Beyond that,
+        // some mod settlements parent straight to a hold or to nothing at all;
         // those fall back to the hold, which is no worse than the old key.
-        region.name = NameOf(settlement ? settlement : (hold ? hold : top));
+        region.name = NameOf(settlement    ? settlement
+                             : habitation  ? habitation
+                             : hold        ? hold
+                                           : top);
         region.hold = NameOf(hold);
 
         // Winterhold is both a hold and its own town, and a mod settlement may
