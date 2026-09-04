@@ -83,19 +83,17 @@ namespace BioForge::Placement
             return nullptr;
         }
 
-        // Furniture and idle markers carry editor scaffolding for a name -
-        // "Lean on Counter Marker", "XMarkerHeading" - which is not a place and
-        // reads as nonsense in a bio. Their ROOM is the part worth saying.
-        bool LooksLikeMarker(std::string_view a_name)
+        // Location records are often named with their own scaffolding still
+        // attached - "Riften Bathhouse Location" - which reads as a filename
+        // rather than a place. Only the suffix goes; the name is otherwise the
+        // author's own words and none of our business.
+        std::string Tidy(std::string a_name)
         {
-            constexpr std::string_view kNeedle = "marker"sv;
-            if (a_name.size() < kNeedle.size()) {
-                return false;
+            constexpr std::string_view kSuffix = " Location"sv;
+            if (a_name.size() > kSuffix.size() && a_name.ends_with(kSuffix)) {
+                a_name.resize(a_name.size() - kSuffix.size());
             }
-            return std::search(a_name.begin(), a_name.end(), kNeedle.begin(), kNeedle.end(),
-                               [](unsigned char a_lhs, unsigned char a_rhs) {
-                                   return std::tolower(a_lhs) == a_rhs;
-                               }) != a_name.end();
+            return a_name;
         }
 
         // Name a package target we can actually put in a sentence. The target
@@ -112,27 +110,31 @@ namespace BioForge::Placement
             // ("Hall of Kyne"), which beats any editor ID we could have read.
             if (auto* cell = a_form->As<RE::TESObjectCELL>()) {
                 if (const char* name = cell->GetFullName(); name && *name) {
-                    return name;
+                    return Tidy(name);
                 }
             }
             if (auto* location = a_form->As<RE::BGSLocation>()) {
                 if (const char* name = location->GetFullName(); name && *name) {
-                    return name;
+                    return Tidy(name);
                 }
             }
             if (auto* ref = a_form->As<RE::TESObjectREFR>()) {
-                // A named target that is not a marker: a person, a shop sign,
-                // something a bio can actually name.
-                if (const char* name = ref->GetDisplayFullName();
-                    name && *name && !LooksLikeMarker(name)) {
-                    return name;
+                // A reference target is only worth naming when it is a PERSON:
+                // "travels to Hadring" says something, "eats at Bench" does
+                // not. Package targets are overwhelmingly furniture and idle
+                // markers, and their names are set dressing - a first cut
+                // filtered on the word "marker" and still produced "eats at
+                // Wooden Stool", "eats at Cooking Pot" and an archery trainer
+                // written up as spending his days on the benches. What the
+                // player would actually say about any of them is the ROOM.
+                if (ref->As<RE::Actor>()) {
+                    if (const char* name = ref->GetDisplayFullName(); name && *name) {
+                        return Tidy(name);
+                    }
                 }
-                // Otherwise it is a marker or unnamed, so fall back to the room
-                // it stands in. Measured: a sandbox package aimed at "Lean on
-                // Counter Marker" should read as the inn, not the furniture.
                 if (auto* cell = ref->GetParentCell()) {
                     if (const char* name = cell->GetFullName(); name && *name) {
-                        return name;
+                        return Tidy(name);
                     }
                 }
             }
