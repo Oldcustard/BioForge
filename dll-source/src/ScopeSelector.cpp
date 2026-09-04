@@ -52,6 +52,8 @@ namespace BioForge
         const auto& cfg        = Config::Get();
         const auto* playerCell = player->GetParentCell();
 
+        std::size_t absent = 0;
+
         tes->ForEachReferenceInRange(player, cfg.scanRadius, [&](RE::TESObjectREFR* a_ref) {
             if (!a_ref) {
                 return RE::BSContainer::ForEachResult::kContinue;
@@ -59,6 +61,21 @@ namespace BioForge
 
             auto* actor = a_ref->As<RE::Actor>();
             if (!actor || actor == player) {
+                return RE::BSContainer::ForEachResult::kContinue;
+            }
+
+            // A DISABLED reference is not in the world: no 3D, nobody can see
+            // or talk to it, and SkyrimNet never registers it - so it has no
+            // UUID, and a generation dispatched for it is dropped on the floor.
+            // They reach this callback at all because they are PERSISTENT, and
+            // ForEachReferenceInRange walks the persistent list like any other.
+            // Measured at Nightgate: Eriana, Caralia and Sangi - three mod
+            // followers parked as Persistent + InitiallyDisabled until they are
+            // recruited - were counted as gaps and turned "Generate all 6" into
+            // three bios. Tested at RUNTIME, not on the record flag, so an NPC
+            // who has since been enabled is scanned normally.
+            if (a_ref->IsDisabled() || a_ref->IsDeleted()) {
+                ++absent;
                 return RE::BSContainer::ForEachResult::kContinue;
             }
             if (!cfg.includeDead && actor->IsDead()) {
@@ -100,6 +117,14 @@ namespace BioForge
             out.push_back(std::move(c));
             return RE::BSContainer::ForEachResult::kContinue;
         });
+
+        if (absent > 0) {
+            // Logged rather than silent: this is the difference between what
+            // the cell record holds and who is actually standing in it.
+            logs::info("scan: skipped {} disabled reference(s) - present in the cell"
+                       " record, not in the world"sv,
+                       absent);
+        }
 
         std::sort(out.begin(), out.end(),
                   [](const Candidate& a, const Candidate& b) { return a.distance < b.distance; });
