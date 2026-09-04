@@ -76,13 +76,6 @@ schema:
       defaultValue: true
       category: "Generation"
 
-    - name: "Reload Prompts After Commit"
-      path: "commit.reloadPrompts"
-      type: "bool"
-      description: "Ask SkyrimNet to rebuild its template path cache after committing a bio, so the character speaks with their new profile without a restart. It is not settled that this is needed - SkyrimNet falls back to direct path resolution on a cache miss, and a committed bio sits exactly where that fallback looks - and the rebuild is not free. Turn it off if committed bios still take effect, and restart the game if they do not."
-      defaultValue: true
-      category: "Generation"
-
     # ---- Regional digest ---------------------------------------------------
     # A short reference sheet of who holds power, trade and property in one
     # settlement, written once by the LLM and reused by every bio generated

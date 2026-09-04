@@ -3,7 +3,6 @@
 #include "StagingStore.h"
 
 #include "Config.h"
-#include "PromptReload.h"
 #include "ScopeSelector.h"
 
 #include <array>
@@ -644,16 +643,15 @@ namespace BioForge::Staging
 
         a_note = "committed " + target.string();
 
-        // New .prompt files are invisible to SkyrimNet's path cache until a
-        // reload. SCHEDULED, never awaited: the reload makes SkyrimNet rescan
-        // its whole prompt tree, which is seconds on a large corpus, and Commit
-        // runs on the UI thread - waiting for it froze the game on every press.
-        // Scheduling also collapses a run of commits into a single rescan.
-        if (Config::Get().reloadPrompts) {
-            PromptReload::Schedule();
-        } else {
-            logs::info("commit: prompt reload suppressed by commit.reloadPrompts"sv);
-        }
+        // No cache reload is asked for, and none is needed. SkyrimNet's
+        // PromptEngine loads a character template on demand and then polls it
+        // for changes ("Checking for changes in prompt file: characters/..."),
+        // so a bio committed from inside the game process is picked up on its
+        // own. Measured: committed at 21:26:54 with the reload suppressed, and
+        // SkyrimNet had rendered the new bio into dialogue by 21:27:00 with no
+        // rescan of any kind in between. The old path asked the loopback server
+        // to rebuild a ~7,200 entry cache, which took 2.4-10.7s and, because
+        // Commit runs on the UI thread, once froze the game on every press.
 
         {
             std::lock_guard lock{ g_mutex };
