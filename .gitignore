@@ -6,3 +6,6 @@ vcpkg_installed/
 configure.log
 build.log
 __pycache__/
+
+# Release archives are build output, not source.
+*.zip
