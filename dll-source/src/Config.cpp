@@ -68,8 +68,7 @@ namespace BioForge::Config
             const Settings defaults{};
 
             Settings s{};
-            s.scanRadius  = ReadFloat("scan.radius", defaults.scanRadius);
-            s.cellOnly    = ReadBool("scan.cellOnly", defaults.cellOnly);
+            s.exteriorScanRadius = ReadFloat("scan.exteriorRadius", defaults.exteriorScanRadius);
             s.uniqueOnly  = ReadBool("scan.uniqueOnly", defaults.uniqueOnly);
             s.includeDead = ReadBool("scan.includeDead", defaults.includeDead);
 
@@ -87,9 +86,9 @@ namespace BioForge::Config
 
         void LogSettings(const char* a_what)
         {
-            logs::info("{}: radius={:.0f} cellOnly={} uniqueOnly={} includeDead={}"
+            logs::info("{}: exteriorRadius={:.0f} uniqueOnly={} includeDead={}"
                        " maxConcurrent={} refinePass={}"sv,
-                       a_what, g_settings.scanRadius, g_settings.cellOnly,
+                       a_what, g_settings.exteriorScanRadius,
                        g_settings.uniqueOnly, g_settings.includeDead,
                        g_settings.maxConcurrent, g_settings.refinePass);
             logs::info("{}: digest enabled={} autoBuild={} maxCandidates={}"sv,

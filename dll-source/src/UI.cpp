@@ -22,28 +22,37 @@ namespace BioForge::UI
         bool                   g_hasScanned = false;
 
         // Where the scan was taken, so it can be dropped once the player has
-        // left the ground it describes. What counts as "left" depends on how
-        // the scan was scoped, which is why the setting is recorded with it:
+        // left the ground it describes. What counts as "left" depends on
+        // whether the scan was interior or exterior, which is why that is
+        // recorded with it:
         //
-        //   cellOnly on  - the scan IS one room, so a cell change invalidates.
-        //   cellOnly off - the scan deliberately spans cells, and in a city you
-        //                  cross one every ~58 m, so clearing on that would
-        //                  destroy a city sweep while you walk to the people it
-        //                  just found. Location is the honest boundary there:
-        //                  wandering Whiterun holds it, leaving for Riverwood
-        //                  drops it.
+        //   interior - the scan IS one room, so a cell change invalidates.
+        //   exterior - the scan deliberately spans cells, and in a city you
+        //              cross one every ~58 m, so clearing on that would destroy
+        //              a town sweep while you walk to the people it just found.
+        //              Location is the honest boundary there: wandering
+        //              Whiterun holds it, leaving for Riverwood drops it.
         //
         // The cell is kept as a FormID rather than a pointer - an unloaded cell
         // would leave a dangling one.
         std::uint32_t g_scanCell     = 0;
         std::string   g_scanLocation;
-        bool          g_scanCellOnly = true;
+        bool          g_scanInterior = true;
 
         std::uint32_t CurrentCellID()
         {
             auto* player = RE::PlayerCharacter::GetSingleton();
             auto* cell   = player ? player->GetParentCell() : nullptr;
             return cell ? cell->GetFormID() : 0;
+        }
+
+        // Where the player is standing decides the scan's scope, so both the
+        // status line (what a scan WOULD do) and the scan itself read this.
+        bool PlayerInInterior()
+        {
+            auto* player = RE::PlayerCharacter::GetSingleton();
+            auto* cell   = player ? player->GetParentCell() : nullptr;
+            return cell && cell->IsInteriorCell();
         }
 
         constexpr ImGuiMCP::ImVec4 kGapColour{ 1.00f, 0.72f, 0.30f, 1.0f };
@@ -73,12 +82,18 @@ namespace BioForge::UI
                 ImGuiMCP::TextDisabled("Database not ready - load a save first.");
             }
 
-            const auto& cfg = Config::Get();
-            ImGuiMCP::TextDisabled("Scope: %s, radius %.0f, %s NPCs%s",
-                                   cfg.cellOnly ? "current cell" : "radius",
-                                   cfg.scanRadius,
-                                   cfg.uniqueOnly ? "unique" : "all",
-                                   cfg.includeDead ? ", including dead" : "");
+            const auto& cfg      = Config::Get();
+            const bool  interior = PlayerInInterior();
+            if (interior) {
+                ImGuiMCP::TextDisabled("Scope: this cell (interior), %s NPCs%s",
+                                       cfg.uniqueOnly ? "unique" : "all",
+                                       cfg.includeDead ? ", including dead" : "");
+            } else {
+                ImGuiMCP::TextDisabled("Scope: exterior, radius %.0f (crosses cells), %s NPCs%s",
+                                       cfg.exteriorScanRadius,
+                                       cfg.uniqueOnly ? "unique" : "all",
+                                       cfg.includeDead ? ", including dead" : "");
+            }
         }
 
         // The region line. Worth its own row because the digest is the one
@@ -215,8 +230,9 @@ namespace BioForge::UI
             }
 
             if (g_results.empty()) {
-                ImGuiMCP::TextWrapped("Nothing matched. Widen the radius, turn off 'Current Cell Only', "
-                                      "or turn off 'Unique NPCs Only' in SkyrimNet's BioForge settings.");
+                ImGuiMCP::TextWrapped("Nothing matched. Outdoors, raise 'Exterior Scan Radius'; "
+                                      "either way, try turning off 'Unique NPCs Only' in SkyrimNet's "
+                                      "BioForge settings.");
                 return;
             }
 
@@ -755,7 +771,7 @@ namespace BioForge::UI
                 // live: the roster was snapshotted when it started, and the
                 // reader's Regenerate resolves its candidate out of this list.
                 if (g_hasScanned) {
-                    const bool moved = g_scanCellOnly
+                    const bool moved = g_scanInterior
                                            ? CurrentCellID() != g_scanCell
                                            : RegionDigest::Current().name != g_scanLocation;
                     if (moved) {
@@ -778,7 +794,7 @@ namespace BioForge::UI
                 g_hasScanned   = true;
                 g_scanCell     = CurrentCellID();
                 g_scanLocation = RegionDigest::Current().name;
-                g_scanCellOnly = Config::Get().cellOnly;
+                g_scanInterior = PlayerInInterior();
                 LogGapReport(g_results);
             }
             ImGuiMCP::SameLine();

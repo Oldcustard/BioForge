@@ -29,20 +29,17 @@ schema:
     # one more binding to collide with - and SkyrimNet's Hotkey.yaml already uses
     # VIRTUAL-KEY codes while CommonLibSSE reports DirectInput scan codes, so two
     # hotkey settings side by side would disagree about what "F10" means.
-    - name: "Scan Radius"
-      path: "scan.radius"
+    # Scope follows where you are standing. Indoors a scan covers your whole
+    # current cell (no radius - the cell is enumerated directly), so the only
+    # knob is for outdoors, where a scan crosses cells and the radius IS the
+    # scope: a town-wide sweep.
+    - name: "Exterior Scan Radius"
+      path: "scan.exteriorRadius"
       type: "float"
-      description: "Radius in game units to look for NPCs. Roughly 3000 covers an inn interior. Ignored for what falls outside the current cell when 'Current Cell Only' is on."
-      defaultValue: 3000.0
+      description: "Radius in game units for a scan taken outdoors, which crosses cell boundaries. One exterior cell is 4096 units, so a town-wide sweep wants several thousand more - but a larger radius outdoors can be a lot of people."
+      defaultValue: 10000.0
       min: 100.0
-      max: 20000.0
-      category: "Scan"
-
-    - name: "Current Cell Only"
-      path: "scan.cellOnly"
-      type: "bool"
-      description: "Restrict the scan to the player's current cell. Off widens it to everything within the radius, which outdoors can be a lot of people."
-      defaultValue: true
+      max: 40000.0
       category: "Scan"
 
     - name: "Unique NPCs Only"

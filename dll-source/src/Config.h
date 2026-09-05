@@ -6,11 +6,17 @@ namespace BioForge::Config
 {
     struct Settings
     {
-        // Radius scan, in game units. ~3000 comfortably covers an inn interior.
-        float scanRadius = 3000.0f;
-
-        // Restrict the scan to the player's current cell.
-        bool cellOnly = true;
+        // Scan scope follows where the player is standing, because the right
+        // scope IS the interior/exterior distinction - there is no useful case
+        // for a cell-only scan outdoors or a cross-cell scan inside a room, so
+        // it was a toggle the user only ever got wrong.
+        //
+        // Indoors the scan is the whole current cell (enumerated directly, so a
+        // large hall like the Blue Palace is covered with no radius to tune).
+        // Outdoors it crosses cells, and THEN the radius is the scope - a town
+        // sweep wants to reach across several cells, one being 4096 units, so
+        // this is deliberately large.
+        float exteriorScanRadius = 10000.0f;
 
         // Only consider NPCs flagged Unique. Generic leveled actors share base
         // records and are served fine by the generic fallback template.

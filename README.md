@@ -20,8 +20,11 @@ second model to set up.
 Open SKSE Menu Framework's mod control panel (default **`x`**, set in
 `SKSEMenuFramework.ini`) and go to **Bio Forge / Scan**.
 
-1. **Scan.** Finds nearby NPCs and reports which ones SkyrimNet has no bio for. The
-   same report goes to `BioForge.log`:
+1. **Scan.** Finds nearby NPCs and reports which ones SkyrimNet has no bio for. What
+   "nearby" means follows where you are standing: **indoors** it is the whole room you are
+   in, however large, so a scan in the Blue Palace picks up everyone in it. **Outdoors** it
+   is a radius that crosses cell boundaries — a town-wide sweep — so one scan in the middle
+   of Whiterun can find the whole city. The same report goes to `BioForge.log`:
 
    ```
    --- Bio Forge scan: 12 actor(s), 5 without a bio ---
@@ -30,10 +33,9 @@ Open SKSE Menu Framework's mod control panel (default **`x`**, set in
    ```
 
    The scan clears itself once you leave the ground it describes, so the table never
-   lists someone you have walked away from. With **Current cell only** on that means the
-   room you scanned; with it off — a deliberate town-wide sweep — the scan holds while you
-   wander the settlement and only clears when you leave it, so walking across Whiterun to
-   the people it found doesn't wipe the list.
+   lists someone you have walked away from. An indoor scan clears when you leave the room;
+   an outdoor sweep holds while you wander the settlement and only clears when you leave it,
+   so walking across Whiterun to the people it found doesn't wipe the list.
 
 2. **Generate**, one NPC at a time or the whole cell at once. Requests run a couple at
    a time so a busy inn doesn't turn into a burst of simultaneous LLM calls.
@@ -137,8 +139,7 @@ manifest degrades to defaults rather than failing.
 
 | Setting | Path | Default |
 |---|---|---|
-| Scan radius, game units | `scan.radius` | `3000` |
-| Current cell only | `scan.cellOnly` | `true` |
+| Exterior scan radius, game units | `scan.exteriorRadius` | `10000` |
 | Unique NPCs only | `scan.uniqueOnly` | `true` |
 | Include dead | `scan.includeDead` | `false` |
 | Concurrent generations | `generate.maxConcurrent` | `4` |

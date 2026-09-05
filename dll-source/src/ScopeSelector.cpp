@@ -53,9 +53,16 @@ namespace BioForge
         const auto& cfg        = Config::Get();
         const auto* playerCell = player->GetParentCell();
 
+        // Scope follows where the player is. Indoors the scan is the whole
+        // current cell, however large, so it enumerates the cell directly and
+        // needs no radius - a Blue-Palace-sized hall is covered without a
+        // number to guess. Outdoors there is no single cell to bound it, so it
+        // sweeps a radius and crosses cell boundaries as it goes.
+        const bool interior = playerCell && playerCell->IsInteriorCell();
+
         std::size_t absent = 0;
 
-        tes->ForEachReferenceInRange(player, cfg.scanRadius, [&](RE::TESObjectREFR* a_ref) {
+        auto perRef = [&](RE::TESObjectREFR* a_ref) -> RE::BSContainer::ForEachResult {
             if (!a_ref) {
                 return RE::BSContainer::ForEachResult::kContinue;
             }
@@ -68,9 +75,10 @@ namespace BioForge
             // A DISABLED reference is not in the world: no 3D, nobody can see
             // or talk to it, and SkyrimNet never registers it - so it has no
             // UUID, and a generation dispatched for it is dropped on the floor.
-            // They reach this callback at all because they are PERSISTENT, and
-            // ForEachReferenceInRange walks the persistent list like any other.
-            // Measured at Nightgate: Eriana, Caralia and Sangi - three mod
+            // They reach this callback at all because they are PERSISTENT, so
+            // the cell's reference list holds them like any other - both
+            // enumerators below surface them. Measured at Nightgate: Eriana,
+            // Caralia and Sangi - three mod
             // followers parked as Persistent + InitiallyDisabled until they are
             // recruited - were counted as gaps and turned "Generate all 6" into
             // three bios. Tested at RUNTIME, not on the record flag, so an NPC
@@ -80,9 +88,6 @@ namespace BioForge
                 return RE::BSContainer::ForEachResult::kContinue;
             }
             if (!cfg.includeDead && actor->IsDead()) {
-                return RE::BSContainer::ForEachResult::kContinue;
-            }
-            if (cfg.cellOnly && a_ref->GetParentCell() != playerCell) {
                 return RE::BSContainer::ForEachResult::kContinue;
             }
 
@@ -125,7 +130,13 @@ namespace BioForge
 
             out.push_back(std::move(c));
             return RE::BSContainer::ForEachResult::kContinue;
-        });
+        };
+
+        if (interior) {
+            playerCell->ForEachReference(perRef);
+        } else {
+            tes->ForEachReferenceInRange(player, cfg.exteriorScanRadius, perRef);
+        }
 
         if (absent > 0) {
             // Logged rather than silent: this is the difference between what
@@ -156,7 +167,7 @@ namespace BioForge
         }
 
         if (a_candidates.empty()) {
-            logs::info("  (nothing matched - check scan.radius / scan.uniqueOnly / scan.cellOnly)"sv);
+            logs::info("  (nothing matched - check scan.exteriorRadius / scan.uniqueOnly)"sv);
         }
     }
 }
