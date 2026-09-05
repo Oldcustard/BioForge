@@ -14,14 +14,27 @@ namespace BioForge::Config
         // Indoors the scan is the whole current cell (enumerated directly, so a
         // large hall like the Blue Palace is covered with no radius to tune).
         // Outdoors it crosses cells, and THEN the radius is the scope - a town
-        // sweep wants to reach across the WHOLE settlement from wherever the
-        // player is standing, which is a diameter, not a radius. 10000 clipped
-        // Solitude (NPCs found sitting at 9959, i.e. cut off at the cap), so a
-        // large city needs ~20000. A generous value is safe outdoors because
-        // ForEachReferenceInRange only ever returns LOADED actors: a city
-        // worldspace stays fully loaded so the sweep gets all of it, while open
-        // Tamriel is bounded by uGridsToLoad regardless of the number here.
-        float exteriorScanRadius = 20000.0f;
+        // sweep must reach the WHOLE settlement from wherever the player is
+        // standing, so the figure is a diameter, not a radius.
+        //
+        // The bound is the city's CELL FOOTPRINT, not where its NPCs were
+        // placed. Measured from the record data, SolitudeWorld's city cluster
+        // is cells X[-3,3] Y[-3,1] - 7x5 cells, 28672 x 20480 units, a
+        // corner-to-corner diagonal of ~35200 - and Whiterun, Windhelm and
+        // Riften are all larger. Placement positions are much tighter (vanilla
+        // Solitude's cast sits inside ~2800 units) but that is IRRELEVANT: NPCs
+        // walk their routines, so any of them can be anywhere navmeshed in the
+        // worldspace at scan time. Reasoning from editor positions here was a
+        // real mistake - it is the wandering that this whole feature exists to
+        // catch.
+        //
+        // Hence the max: 40000 covers the largest city from any corner. It
+        // costs nothing. Outdoors in Tamriel, ForEachReferenceInRange only
+        // returns LOADED actors and uGridsToLoad caps that regardless of the
+        // number here; inside a city (all five are flagged SmallWorld, so
+        // fully loaded) every actor is already in memory and a bigger radius
+        // merely stops DISCARDING them.
+        float exteriorScanRadius = 40000.0f;
 
         // Only consider NPCs flagged Unique. Generic leveled actors share base
         // records and are served fine by the generic fallback template.

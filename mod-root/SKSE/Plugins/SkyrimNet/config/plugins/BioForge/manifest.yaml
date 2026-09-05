@@ -36,10 +36,10 @@ schema:
     - name: "Exterior Scan Radius"
       path: "scan.exteriorRadius"
       type: "float"
-      description: "Radius in game units for a scan taken outdoors, which crosses cell boundaries. To sweep a whole city from wherever you stand you need its full width, not half of it: 20000 comfortably covers the largest cities like Solitude. Raising it further is safe - outdoors the game only loads actors within a few cells anyway - so a bigger number just means a smaller city is caught in one pass."
-      defaultValue: 20000.0
+      description: "Radius in game units for a scan taken outdoors, which crosses cell boundaries. To sweep a whole city from wherever you stand you need its full width, not half of it, and NPCs walk their routines all over it - Solitude's city cells measure roughly 28000 x 20000 units, about 35000 corner to corner, and Whiterun, Windhelm and Riften are larger. 40000 covers the biggest city from any corner. Lowering it only risks missing people; raising it costs nothing, because outdoors the game only loads actors within a few cells anyway."
+      defaultValue: 40000.0
       min: 100.0
-      max: 40000.0
+      max: 60000.0
       category: "Scan"
 
     - name: "Unique NPCs Only"

@@ -139,7 +139,7 @@ manifest degrades to defaults rather than failing.
 
 | Setting | Path | Default |
 |---|---|---|
-| Exterior scan radius, game units | `scan.exteriorRadius` | `20000` |
+| Exterior scan radius, game units | `scan.exteriorRadius` | `40000` |
 | Unique NPCs only | `scan.uniqueOnly` | `true` |
 | Include dead | `scan.includeDead` | `false` |
 | Concurrent generations | `generate.maxConcurrent` | `4` |
