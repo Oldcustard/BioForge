@@ -36,8 +36,8 @@ schema:
     - name: "Exterior Scan Radius"
       path: "scan.exteriorRadius"
       type: "float"
-      description: "Radius in game units for a scan taken outdoors, which crosses cell boundaries. One exterior cell is 4096 units, so a town-wide sweep wants several thousand more - but a larger radius outdoors can be a lot of people."
-      defaultValue: 10000.0
+      description: "Radius in game units for a scan taken outdoors, which crosses cell boundaries. To sweep a whole city from wherever you stand you need its full width, not half of it: 20000 comfortably covers the largest cities like Solitude. Raising it further is safe - outdoors the game only loads actors within a few cells anyway - so a bigger number just means a smaller city is caught in one pass."
+      defaultValue: 20000.0
       min: 100.0
       max: 40000.0
       category: "Scan"

@@ -14,9 +14,14 @@ namespace BioForge::Config
         // Indoors the scan is the whole current cell (enumerated directly, so a
         // large hall like the Blue Palace is covered with no radius to tune).
         // Outdoors it crosses cells, and THEN the radius is the scope - a town
-        // sweep wants to reach across several cells, one being 4096 units, so
-        // this is deliberately large.
-        float exteriorScanRadius = 10000.0f;
+        // sweep wants to reach across the WHOLE settlement from wherever the
+        // player is standing, which is a diameter, not a radius. 10000 clipped
+        // Solitude (NPCs found sitting at 9959, i.e. cut off at the cap), so a
+        // large city needs ~20000. A generous value is safe outdoors because
+        // ForEachReferenceInRange only ever returns LOADED actors: a city
+        // worldspace stays fully loaded so the sweep gets all of it, while open
+        // Tamriel is bounded by uGridsToLoad regardless of the number here.
+        float exteriorScanRadius = 20000.0f;
 
         // Only consider NPCs flagged Unique. Generic leveled actors share base
         // records and are served fine by the generic fallback template.
