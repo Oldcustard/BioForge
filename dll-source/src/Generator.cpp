@@ -98,6 +98,25 @@ namespace BioForge::Generator
         // job would be N file reads per job - N^2 over a crowded cell.
         using RosterSummaries = std::map<std::uint32_t, std::string>;
 
+        // How many neighbours a bio is told about. The roster is the largest
+        // thing injected - measured at 3,039 characters for a 24-actor scan,
+        // ~18% of the rendered prompt and bigger than the region digest - and
+        // it is carried by EVERY job in a batch. A wide city scan would put 60
+        // or more people in it, which is both expensive and worse: the model
+        // gets less able to pick out a real relationship as the crowd grows,
+        // and famous names crowd out the ordinary person the bio is about.
+        // The digest already supplies who matters city-wide, so this only has
+        // to answer "who is actually around them".
+        constexpr std::size_t kMaxRosterNeighbours = 15;
+
+        float SquaredDistance(const Candidate& a_lhs, const Candidate& a_rhs)
+        {
+            const float dx = a_lhs.posX - a_rhs.posX;
+            const float dy = a_lhs.posY - a_rhs.posY;
+            const float dz = a_lhs.posZ - a_rhs.posZ;
+            return dx * dx + dy * dy + dz * dz;
+        }
+
         RosterSummaries ResolveRoster(const std::vector<Candidate>& a_roster)
         {
             RosterSummaries out;
@@ -157,11 +176,37 @@ namespace BioForge::Generator
             // still unwritten is marked as such rather than left bare, so the
             // model knows the difference between "no information" and "nothing
             // to say".
-            std::string roster;
+            // Nearest to THIS NPC first, and capped. The snapshot is shared by
+            // the whole batch, but this string is built per job, so trimming
+            // costs nothing here. It also fixes something subtler:
+            // Candidate::distance is measured from the PLAYER, so an untrimmed
+            // roster is ordered by "near where you were standing", which is a
+            // different question from "near them".
+            std::vector<const Candidate*> neighbours;
+            neighbours.reserve(a_roster.size());
             for (const auto& other : a_roster) {
                 if (other.refFormID == a_candidate.refFormID || other.name.empty()) {
                     continue;
                 }
+                neighbours.push_back(&other);
+            }
+
+            const auto nearer = [&](const Candidate* a_lhs, const Candidate* a_rhs) {
+                return SquaredDistance(a_candidate, *a_lhs) <
+                       SquaredDistance(a_candidate, *a_rhs);
+            };
+            if (neighbours.size() > kMaxRosterNeighbours) {
+                std::partial_sort(neighbours.begin(),
+                                  neighbours.begin() + kMaxRosterNeighbours,
+                                  neighbours.end(), nearer);
+                neighbours.resize(kMaxRosterNeighbours);
+            } else {
+                std::sort(neighbours.begin(), neighbours.end(), nearer);
+            }
+
+            std::string roster;
+            for (const auto* neighbour : neighbours) {
+                const auto& other = *neighbour;
                 roster += "- " + other.name;
                 if (!other.race.empty()) {
                     roster += " (" + other.race + ")";

@@ -111,7 +111,11 @@ namespace BioForge
             c.sourcePlugin = SourcePluginOf(base);
             c.isUnique     = base->IsUnique();
             c.isFollower   = actor->IsPlayerTeammate();
-            c.distance     = player->GetPosition().GetDistance(a_ref->GetPosition());
+            const auto pos = a_ref->GetPosition();
+            c.posX         = pos.x;
+            c.posY         = pos.y;
+            c.posZ         = pos.z;
+            c.distance     = player->GetPosition().GetDistance(pos);
             c.bioTemplate  = SN::BioTemplateName(c.refFormID);
             c.bioFileExists = BioFileExists(c.bioTemplate);
             c.trackedBySkyrimNet = SN::FormIDToUUID(c.refFormID) != 0;

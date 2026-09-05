@@ -29,8 +29,11 @@ Open SKSE Menu Framework's mod control panel (default **`x`**, set in
      [have] Uthgerd the Unbroken ref=00091918 base=0001A67F Skyrim.esm         race=NordRace    dist=  486 bio='uthgerd_the_unbroken_918'
    ```
 
-   The scan is a snapshot of the room you took it in, and clears itself when you leave,
-   so the table never describes somewhere you have walked out of.
+   The scan clears itself once you leave the ground it describes, so the table never
+   lists someone you have walked away from. With **Current cell only** on that means the
+   room you scanned; with it off — a deliberate town-wide sweep — the scan holds while you
+   wander the settlement and only clears when you leave it, so walking across Whiterun to
+   the people it found doesn't wipe the list.
 
 2. **Generate**, one NPC at a time or the whole cell at once. Requests run a couple at
    a time so a busy inn doesn't turn into a burst of simultaneous LLM calls.
@@ -44,9 +47,9 @@ Open SKSE Menu Framework's mod control panel (default **`x`**, set in
    exist. Only that section, only for NPCs that actually gained a written neighbour, and
    a failure leaves the original untouched. Turn it off with `generate.refinePass`.
 
-5. **Commit.** Writes the bio and asks SkyrimNet to reload its prompt cache, so the
-   character speaks with their new personality without restarting the game. Any
-   existing file is backed up first as `<name>.prompt.backup.<unixtime>`.
+5. **Commit.** Writes the bio into `prompts/characters/`. SkyrimNet picks up the new file
+   on its own, so the character speaks with their new personality without restarting the
+   game. Any existing file is backed up first as `<name>.prompt.backup.<unixtime>`.
 
 6. **Clear up.** **Discard** throws away a staged bio you don't want — it is the only
    copy, so that is the end of it. **Dismiss** takes a committed one off the review

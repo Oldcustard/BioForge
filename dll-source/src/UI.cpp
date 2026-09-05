@@ -21,12 +21,23 @@ namespace BioForge::UI
         std::vector<Candidate> g_results;
         bool                   g_hasScanned = false;
 
-        // The cell the scan was taken in. A scan is a snapshot of one room:
-        // its rows carry distances from where the player stood, and its
-        // Generate buttons point at actors who may now be a load door away.
-        // Kept as a FormID rather than a pointer - an unloaded cell would
-        // leave a dangling one.
-        std::uint32_t g_scanCell = 0;
+        // Where the scan was taken, so it can be dropped once the player has
+        // left the ground it describes. What counts as "left" depends on how
+        // the scan was scoped, which is why the setting is recorded with it:
+        //
+        //   cellOnly on  - the scan IS one room, so a cell change invalidates.
+        //   cellOnly off - the scan deliberately spans cells, and in a city you
+        //                  cross one every ~58 m, so clearing on that would
+        //                  destroy a city sweep while you walk to the people it
+        //                  just found. Location is the honest boundary there:
+        //                  wandering Whiterun holds it, leaving for Riverwood
+        //                  drops it.
+        //
+        // The cell is kept as a FormID rather than a pointer - an unloaded cell
+        // would leave a dangling one.
+        std::uint32_t g_scanCell     = 0;
+        std::string   g_scanLocation;
+        bool          g_scanCellOnly = true;
 
         std::uint32_t CurrentCellID()
         {
@@ -740,13 +751,19 @@ namespace BioForge::UI
                 Config::Refresh();
 
                 // Drop a scan the player has walked out of, rather than leave
-                // rows describing a room they have left. Not while a batch is
+                // rows describing ground they have left. Not while a batch is
                 // live: the roster was snapshotted when it started, and the
                 // reader's Regenerate resolves its candidate out of this list.
-                if (g_hasScanned && CurrentCellID() != g_scanCell) {
-                    g_results.clear();
-                    g_hasScanned = false;
-                    g_scanCell   = 0;
+                if (g_hasScanned) {
+                    const bool moved = g_scanCellOnly
+                                           ? CurrentCellID() != g_scanCell
+                                           : RegionDigest::Current().name != g_scanLocation;
+                    if (moved) {
+                        g_results.clear();
+                        g_hasScanned = false;
+                        g_scanCell   = 0;
+                        g_scanLocation.clear();
+                    }
                 }
             }
 
@@ -757,9 +774,11 @@ namespace BioForge::UI
             ImGuiMCP::Separator();
 
             if (ImGuiMCP::Button("Scan for missing bios")) {
-                g_results    = Scan();
-                g_hasScanned = true;
-                g_scanCell   = CurrentCellID();
+                g_results      = Scan();
+                g_hasScanned   = true;
+                g_scanCell     = CurrentCellID();
+                g_scanLocation = RegionDigest::Current().name;
+                g_scanCellOnly = Config::Get().cellOnly;
                 LogGapReport(g_results);
             }
             ImGuiMCP::SameLine();

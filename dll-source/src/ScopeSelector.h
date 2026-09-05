@@ -29,7 +29,12 @@ namespace BioForge
         bool          trackedBySkyrimNet{};
         bool          isUnique{};
         bool          isFollower{};   // travelling with the player: present by accident
-        float         distance{};
+        float         distance{};   // from the PLAYER, for the table's sort
+        // World position, so a bio's roster can be the people near THAT NPC
+        // rather than the people near wherever the player happened to stand.
+        float         posX{};
+        float         posY{};
+        float         posZ{};
 
         // A gap is an NPC SkyrimNet has no usable bio file for.
         [[nodiscard]] bool IsGap() const { return !bioFileExists; }
