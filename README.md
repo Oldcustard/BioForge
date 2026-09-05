@@ -23,8 +23,14 @@ Open SKSE Menu Framework's mod control panel (default **`x`**, set in
 1. **Scan.** Finds nearby NPCs and reports which ones SkyrimNet has no bio for. What
    "nearby" means follows where you are standing: **indoors** it is the whole room you are
    in, however large, so a scan in the Blue Palace picks up everyone in it. **Outdoors** it
-   is a radius that crosses cell boundaries — a town-wide sweep — so one scan in the middle
-   of Whiterun can find the whole city. The same report goes to `BioForge.log`:
+   crosses cell boundaries and sweeps the surrounding neighbourhood.
+
+   Outdoors there is a limit worth knowing, and it is Skyrim's, not Bio Forge's: the game
+   only keeps a small grid of cells loaded around you, so a scan can only ever see people
+   inside it — roughly 17,000 units at the default `uGridsToLoad`. A big city is wider than
+   that, so **no single scan covers a whole city**; the count also changes as you walk,
+   because the loaded grid slides with you. To sweep a city, scan from two or three spots.
+   The same report goes to `BioForge.log`:
 
    ```
    --- Bio Forge scan: 12 actor(s), 5 without a bio ---
@@ -139,7 +145,7 @@ manifest degrades to defaults rather than failing.
 
 | Setting | Path | Default |
 |---|---|---|
-| Exterior scan radius, game units | `scan.exteriorRadius` | `40000` |
+| Exterior scan radius, game units | `scan.exteriorRadius` | `20000` |
 | Unique NPCs only | `scan.uniqueOnly` | `true` |
 | Include dead | `scan.includeDead` | `false` |
 | Concurrent generations | `generate.maxConcurrent` | `4` |

@@ -36,8 +36,8 @@ schema:
     - name: "Exterior Scan Radius"
       path: "scan.exteriorRadius"
       type: "float"
-      description: "Radius in game units for a scan taken outdoors, which crosses cell boundaries. To sweep a whole city from wherever you stand you need its full width, not half of it, and NPCs walk their routines all over it - Solitude's city cells measure roughly 28000 x 20000 units, about 35000 corner to corner, and Whiterun, Windhelm and Riften are larger. 40000 covers the biggest city from any corner. Lowering it only risks missing people; raising it costs nothing, because outdoors the game only loads actors within a few cells anyway."
-      defaultValue: 40000.0
+      description: "Radius in game units for a scan taken outdoors, which crosses cell boundaries. The real limit is not this setting but uGridsToLoad: Skyrim keeps only a 5x5 cell window of actors loaded around you (about 20000 units across) and a scan cannot see anyone outside it, so the farthest an NPC can possibly be is roughly 17000 units. 20000 covers all of that with margin, and a larger value does nothing. Raise it only if you have also raised uGridsToLoad (7 wants about 23000, 9 about 29000)."
+      defaultValue: 20000.0
       min: 100.0
       max: 60000.0
       category: "Scan"

@@ -13,28 +13,26 @@ namespace BioForge::Config
         //
         // Indoors the scan is the whole current cell (enumerated directly, so a
         // large hall like the Blue Palace is covered with no radius to tune).
-        // Outdoors it crosses cells, and THEN the radius is the scope - a town
-        // sweep must reach the WHOLE settlement from wherever the player is
-        // standing, so the figure is a diameter, not a radius.
+        // Outdoors it crosses cells, and THEN the radius applies.
         //
-        // The bound is the city's CELL FOOTPRINT, not where its NPCs were
-        // placed. Measured from the record data, SolitudeWorld's city cluster
-        // is cells X[-3,3] Y[-3,1] - 7x5 cells, 28672 x 20480 units, a
-        // corner-to-corner diagonal of ~35200 - and Whiterun, Windhelm and
-        // Riften are all larger. Placement positions are much tighter (vanilla
-        // Solitude's cast sits inside ~2800 units) but that is IRRELEVANT: NPCs
-        // walk their routines, so any of them can be anywhere navmeshed in the
-        // worldspace at scan time. Reasoning from editor positions here was a
-        // real mistake - it is the wandering that this whole feature exists to
-        // catch.
+        // The real bound is neither this number nor the city's size: it is
+        // uGridsToLoad. The engine keeps a uGrids x uGrids cell window around
+        // the player (5x5 by default, 20480 units across) and unloads
+        // everything else, in EVERY worldspace - the walled cities included.
+        // Actors outside that window are not in memory at all, and
+        // ForEachReferenceInRange can only return what is loaded. So at the
+        // default uGrids the farthest an actor can POSSIBLY be is ~17400 units
+        // (the window's corner-to-corner diagonal), no matter what this says.
         //
-        // Hence the max: 40000 covers the largest city from any corner. It
-        // costs nothing. Outdoors in Tamriel, ForEachReferenceInRange only
-        // returns LOADED actors and uGridsToLoad caps that regardless of the
-        // number here; inside a city (all five are flagged SmallWorld, so
-        // fully loaded) every actor is already in memory and a bigger radius
-        // merely stops DISCARDING them.
-        float exteriorScanRadius = 40000.0f;
+        // Measured, after two wrong theories: a Riften sweep at 40000 topped
+        // out at 8429 and Solitude at 9959 - neither was radius-limited. The
+        // tell was that scan counts change as the player walks, because the
+        // window slides and swaps which actors exist.
+        //
+        // 20000 therefore covers everything the engine can load, with margin;
+        // anything larger is dead weight. Raise it only alongside uGridsToLoad
+        // (7 wants ~23000, 9 wants ~29000).
+        float exteriorScanRadius = 20000.0f;
 
         // Only consider NPCs flagged Unique. Generic leveled actors share base
         // records and are served fine by the generic fallback template.
