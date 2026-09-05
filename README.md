@@ -173,6 +173,29 @@ what committing that row would write.
 `generate.maxConcurrent` is the one to lower if your provider rate-limits you, and to
 raise if you are running a local model.
 
+## Known issues
+
+**A wrong bio already in your corpus is trusted, and it spreads.** Bio Forge treats any NPC
+SkyrimNet has a bio for as finished — it won't offer to regenerate them — and it reads those
+same bios to tell *other* NPCs who their neighbours are. So a bad entry is both invisible and
+contagious.
+
+A real example from a 3,200-bio install: Riften's Dunmer market trader **Brand-Shei** is served
+by a template named `brandish_DDC`, whose summary reads *"Brandish is a hostile Breton
+destruction mage operating with the bandit group occupying Fort Neugrad."* No NPC called
+Brandish exists in that load order at all — the name and the character were both invented,
+most likely by whatever bulk-generated the corpus misreading "Brand-Shei" as the English word
+"brandish". Every bio generated near Riften's market then inherited that false description in
+its neighbour list.
+
+Bio Forge didn't create the entry and can't currently tell it's wrong: it asks SkyrimNet which
+template serves a reference and trusts the answer. So if a generated bio describes a neighbour
+oddly, check that neighbour's own `.prompt` before blaming the new bio. Deleting the bad file
+and regenerating fixes both it and everyone downstream.
+
+A planned mitigation is to check that a bio actually names the character it claims to describe,
+and to withhold it from other NPCs' neighbour lists when it doesn't.
+
 ## Building
 
 Needs CMake, a C++23 MSVC toolchain, and vcpkg.
