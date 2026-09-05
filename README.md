@@ -175,6 +175,28 @@ raise if you are running a local model.
 
 ## Known issues
 
+**One scan can't cover a whole city.** Skyrim only keeps a small grid of cells loaded around
+you — 5×5 at the default `uGridsToLoad` — and unloads everything else. Actors outside that
+grid aren't in memory at all, so no scan can see them, whatever the radius is set to. The
+practical ceiling is roughly 17,000 units, and a large city is wider than that: Solitude's
+streets span seven cells against a five-cell window.
+
+Two visible consequences, both normal:
+
+- **The count changes as you walk.** The loaded grid slides with you, so each scan sees a
+  different set. (If the list goes *empty* instead, that's different — that's the scan being
+  dropped because you left the area.)
+- **Raising the scan radius past ~20,000 does nothing.** It isn't the limit; the loaded grid
+  is.
+
+So a city is covered by scanning from **two or three positions**, not one. Each scan currently
+replaces the previous one, so generate what you find before moving on. Note this also means
+NPCs on opposite sides of a city are never in the same batch, and so won't be written knowing
+about each other — the regional digest is what carries city-wide context instead.
+
+A planned improvement is a sweep mode that accumulates results across several scan positions
+into one list, so a whole city can be gathered and generated as a single batch.
+
 **A wrong bio already in your corpus is trusted, and it spreads.** Bio Forge treats any NPC
 SkyrimNet has a bio for as finished — it won't offer to regenerate them — and it reads those
 same bios to tell *other* NPCs who their neighbours are. So a bad entry is both invisible and
