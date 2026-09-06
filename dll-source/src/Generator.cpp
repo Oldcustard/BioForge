@@ -643,11 +643,23 @@ namespace BioForge::Generator
         // bios naming them still carry the old reading, or the abstraction they
         // fell back on while the actor had NO PROFILE YET.
         //
-        // Deliberately narrow, because every entry here is an LLM call the user
-        // did not directly ask for:
-        //  - only bios that actually NAME the changed actor in their ties. A
-        //    bio that never mentions them has nothing to correct, and this is
-        //    what keeps a 13-bio block from firing 12 revisions.
+        // EVERY staged bio is marked, not just the ones that appear to mention
+        // the actor. Filtering on the name first is the obvious optimisation
+        // and it was tried: `ties.find(displayName)`. It silently skipped the
+        // repairs it existed to make, because the corpus writes the GIVEN name
+        // - "Uthgerd", never "Uthgerd the Unbroken" - so every titled or
+        // epithet-bearing NPC missed. The digest hit the identical problem and
+        // solved it with a real citation matcher (see RegionDigest.cpp), but
+        // whether a paragraph is TALKING ABOUT someone is a reading task, not a
+        // substring task, so it is handed to the model instead. The cost is a
+        // call per staged bio, accepted deliberately.
+        //
+        // What keeps that safe is the PROMPT, not this function: given
+        // changedActor, it is told to return the existing ties verbatim when
+        // that actor is not mentioned. A no-op re-ask is the cheap outcome; a
+        // missed correction was the expensive one.
+        //
+        // Still bounded two ways:
         //  - staged and uncommitted only. A committed bio is deliberate output;
         //    rewriting one behind the user's back is worse than a stale line.
         //  - honours generate.refinePass, which is the existing switch for
@@ -667,13 +679,8 @@ namespace BioForge::Generator
                     continue;
                 }
 
-                const auto staged = Staging::StagedBioFor(entry.refFormID);
-                if (staged.empty()) {
-                    continue;
-                }
-                const auto ties = Staging::ExtractBlock(staged, kRefineBlock);
-                if (ties.find(a_changed.name) == std::string::npos) {
-                    continue;   // says nothing about them: nothing to correct
+                if (Staging::StagedBioFor(entry.refFormID).empty()) {
+                    continue;   // failed its first pass, or was discarded
                 }
 
                 // Re-asking needs the Candidate, not just the staged entry -
@@ -702,8 +709,8 @@ namespace BioForge::Generator
                 g_refineRoster = a_roster;
                 g_refineDigest = a_digest;
             }
-            logs::info("refine: {} staged bio(s) describe {} - their ties will be re-asked "
-                       "once the rewrite lands"sv,
+            logs::info("refine: {} staged bio(s) will be re-checked against the rewritten {} "
+                       "once it lands - ones that never mention them come back unchanged"sv,
                        watch.size(), a_changed.name);
         }
 

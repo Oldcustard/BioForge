@@ -102,12 +102,23 @@ Background only. Use it where this character's own evidence actually reaches, an
 otherwise.
 {% endif %}
 {% if length(changedActor) > 0 %}
-## What prompted this revision
-{{ changedActor }}'s own profile has just been rewritten, and the lines above were written
-against the older reading of them. Concentrate on what {{ subjectName }} says about
-{{ changedActor }}: make it agree with how {{ changedActor }} is described in the list
-above, correcting or dropping anything that no longer fits. Leave every OTHER tie alone —
-those were composed from this character's own evidence and are still good.
+## What prompted this revision — read this first
+One character's profile has just been rewritten: **{{ changedActor }}**. This revision is
+about them and nothing else.
+
+**If the section above never refers to {{ changedActor }}, reproduce it EXACTLY as it is
+written, character for character, and stop.** Do not reword it, reorder it, tidy it,
+shorten it, or add to it. Most revisions are expected to come back completely unchanged —
+that is the correct and expected outcome, not a failure, and an unchanged answer is far
+better than a rewritten one.
+
+{{ subjectName }} may refer to {{ changedActor }} by given name, surname, title, or role
+rather than in full, so read for the person, not the exact string.
+
+Only if {{ changedActor }} IS referred to: adjust that one tie so it agrees with how
+{{ changedActor }} is described in the list above, correcting or dropping whatever no
+longer fits. Leave every other line in the section exactly as it stands — those were
+composed from this character's own evidence and are still good.
 {% endif %}
 Write the revised `### relationships` section for {{ subjectName }} now.
 [ end user ]
