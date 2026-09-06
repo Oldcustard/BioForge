@@ -22,7 +22,7 @@ namespace BioForge::Placement
         // reading "Package at Hall of Kyne". Following templateParent does not
         // help either: the template record reports `kPackageTemplate` (19).
         // The template's EDITOR ID would say "Sandbox" outright, but package
-        // editor IDs are empty at runtime (see the note in CLAUDE.md).
+        // editor IDs are empty at runtime (see dev-notes/placement.md).
         //
         // So the template is identified by FORM ID. These are all Skyrim.esm,
         // which is always load-order index 0, so the runtime IDs are the record

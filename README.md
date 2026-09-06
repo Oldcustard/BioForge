@@ -50,10 +50,13 @@ Open SKSE Menu Framework's mod control panel (default **`x`**, set in
    bio as it would be committed, or flip to the raw model reply when a parse failed.
    Nothing touches your `prompts/characters/` folder until you press Commit.
 
-4. **Refine.** When a batch finishes, any bio written while the people around it still
-   had no profile gets its `relationships` section re-asked, now that those neighbours
-   exist. Only that section, only for NPCs that actually gained a written neighbour, and
-   a failure leaves the original untouched. Turn it off with `generate.refinePass`.
+4. **Refine.** Relationships get a second look whenever the people they describe change.
+   When a batch finishes, any bio written while its neighbours still had no profile gets
+   its `relationships` section re-asked now that they exist. And when you **Regenerate** a
+   single character, the other staged bios are re-checked against the new version of them —
+   the ones that never mention them come back unchanged. Only that section is ever touched,
+   committed bios are left alone, and a failure leaves the original as it was. Turn it off
+   with `generate.refinePass`.
 
 5. **Commit.** Writes the bio into `prompts/characters/`. SkyrimNet picks up the new file
    on its own, so the character speaks with their new personality without restarting the
@@ -257,6 +260,7 @@ dll-source/src/StagingStore.{h,cpp}        response parsing, staging bundle, com
 dll-source/src/Json.h                      context escaping; there is no JSON library
 mod-root/                                  files shipped verbatim into the mod
 tools/render_probe.py                      prompt iteration against the live game
+dev-notes/                                 why the non-obvious rules exist (see CLAUDE.md)
 ```
 
 Two vendored headers, both resolving their DLLs at runtime via `GetProcAddress`, so
