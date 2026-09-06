@@ -41,6 +41,17 @@
    Every heading needs a guaranteed non-empty body: the renderer DROPS a heading
    whose body renders empty (consecutive headings collapse into the last one).
    That is why the conditional sections below all carry a fallback line.
+
+   DO NOT list engine flags in the Identity block. `npc.isEssential` used to be
+   there, rendered as "Flagged essential (story-protected)", and the model wrote
+   that phrase straight into the prose: "she is story-protected by unseen
+   forces", "he is story-protected in the sense that fate has use for him yet".
+   It is metadata about death immunity with no meaning inside the fiction, and
+   it is not even a signal of importance - Riften_Bathhouse.esp flags its
+   trader, its lodgers and both its trainers essential alike. It was removed
+   rather than reworded, and the "never narrate game mechanics" rule below is
+   the general guard. isChild and isGuard stay because both change how the
+   person is written, not just how the engine treats them.
    =========================================================================== #}
 {% set dlg = available_dialogue(actorUUID) %}
 {% set npc = decnpc(actorUUID) %}
@@ -72,6 +83,10 @@ as a character sheet an actor could play from, not as an encyclopedia entry.
   not a job title, and it is often left at something absurd - a barmaid whose class reads
   "Dremora" is a barmaid, not a daedra. Use it only when it agrees with the dialogue,
   factions, location and clothing; ignore it outright when it does not.
+- **Never narrate game mechanics.** Levels, stats, class templates, flags and anything
+  else that describes the NPC as a game object do not exist inside the fiction. Use them
+  as evidence about the person if they help; never state them, and never dress one up as
+  fate, destiny or "unseen forces" watching over them.
 - Write plainly and specifically. No purple prose, no fantasy-novel throat-clearing.
 - Third person, present tense.
 - If the evidence is thin, write a **short, plausible, ordinary** person. A believable
@@ -171,7 +186,6 @@ generic one.
 - Level: {{ npc.level }}
 - Class: {{ npc.class }}
 {% if npc.isChild %}- A CHILD. Write them as a child; nothing romantic or adult.
-{% endif %}{% if npc.isEssential %}- Flagged essential (story-protected).
 {% endif %}{% if npc.isGuard %}- A guard.
 {% endif %}{% if sourcePlugin %}- Added by the mod: {{ sourcePlugin }}
 {% endif %}- Standing right now in: {{ get_location(actorUUID) }}
