@@ -70,6 +70,11 @@ Open SKSE Menu Framework's mod control panel (default **`x`**, set in
    tells you how many uncommitted bios are at stake. Nothing here can delete a bio you
    have committed.
 
+   Committed entries also drop off the list on their own when you walk to another cell, so
+   the review list doesn't accumulate finished work behind you. Bios you *haven't*
+   committed are left alone — they're the only copy, so nothing disappears through a
+   doorway.
+
 A bio is written around where someone lives and works — read from their AI packages and
 from where the game placed them — not from wherever the scan happened to catch them.
 Someone found mid-errand in a tavern is written as who they are rather than as a regular,

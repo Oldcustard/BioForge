@@ -39,6 +39,13 @@ namespace BioForge::UI
         std::string   g_scanLocation;
         bool          g_scanInterior = true;
 
+        // The cell the REVIEW list was last reconciled in, tracked separately
+        // from g_scanCell because that one is reset to 0 when a scan is
+        // dropped, and because the review list clears on a plain cell change
+        // rather than the scan's scope-aware boundary. 0 means "not yet
+        // observed" - the first frame just records where we are.
+        std::uint32_t g_reviewCell = 0;
+
         std::uint32_t CurrentCellID()
         {
             auto* player = RE::PlayerCharacter::GetSingleton();
@@ -779,6 +786,40 @@ namespace BioForge::UI
                         g_hasScanned = false;
                         g_scanCell   = 0;
                         g_scanLocation.clear();
+                    }
+                }
+
+                // Walking to another cell also tidies the review list, but
+                // COMMITTED entries only - exactly what the Clear committed
+                // button does, just without having to press it. Those bios are
+                // already written to prompts/characters/ and discarding the
+                // staging bundle leaves them alone, so nothing can be lost.
+                //
+                // Uncommitted bios deliberately survive. They are the only
+                // copy, they cost an LLM call each, and a bio generated at
+                // Nightgate is still worth committing from Ivarstead - clearing
+                // those on a doorway would destroy unsaved work silently.
+                const auto cell = CurrentCellID();
+                if (g_reviewCell == 0) {
+                    g_reviewCell = cell;   // first frame: just record where we are
+                } else if (cell != g_reviewCell) {
+                    g_reviewCell = cell;
+
+                    std::size_t dropped = 0;
+                    for (const auto& e : Staging::Snapshot()) {
+                        if (!e.committed) {
+                            continue;
+                        }
+                        if (e.refFormID == g_selected) {
+                            g_selected  = 0;
+                            g_bufferFor = 0;
+                        }
+                        Staging::Discard(e);
+                        ++dropped;
+                    }
+                    if (dropped > 0) {
+                        logs::info("staging: dropped {} committed entry(s) on leaving the cell"sv,
+                                   dropped);
                     }
                 }
             }
