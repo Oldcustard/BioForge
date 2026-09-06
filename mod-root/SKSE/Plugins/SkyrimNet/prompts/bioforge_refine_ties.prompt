@@ -101,5 +101,13 @@ Name: {{ subjectName }}
 Background only. Use it where this character's own evidence actually reaches, and not
 otherwise.
 {% endif %}
+{% if length(changedActor) > 0 %}
+## What prompted this revision
+{{ changedActor }}'s own profile has just been rewritten, and the lines above were written
+against the older reading of them. Concentrate on what {{ subjectName }} says about
+{{ changedActor }}: make it agree with how {{ changedActor }} is described in the list
+above, correcting or dropping anything that no longer fits. Leave every OTHER tie alone —
+those were composed from this character's own evidence and are still good.
+{% endif %}
 Write the revised `### relationships` section for {{ subjectName }} now.
 [ end user ]

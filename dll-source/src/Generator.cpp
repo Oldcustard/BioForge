@@ -262,13 +262,23 @@ namespace BioForge::Generator
             std::string   contextJson;
         };
 
-        // Bios written while at least one neighbour was still unwritten, with
-        // the neighbours that were missing at the time. Held until the batch
-        // drains, then re-asked - see Tick().
+        // A staged bio whose relationships block needs re-asking, and the
+        // neighbours whose profiles changing is the reason. Held until
+        // everything drains, then re-asked - see Tick().
+        //
+        // Two things populate this, and the trigger means slightly different
+        // things in each:
+        //  - a BATCH (QueueJobs) records neighbours that were still UNWRITTEN
+        //    when this bio was composed. triggerName is empty: several may
+        //    land, so the re-ask is a plain "look again at everyone".
+        //  - a SINGLE (re)generation (WatchDependentsOf) records the one actor
+        //    that was just rewritten, in the bios that already NAME them.
+        //    triggerName is set, and the prompt is told to focus there.
         struct RefineWatch
         {
             Candidate                  subject;
-            std::vector<std::uint32_t> unknown;
+            std::vector<std::uint32_t> triggers;
+            std::string                triggerName;
         };
 
         std::vector<RefineWatch> g_refineWatch;
@@ -291,6 +301,12 @@ namespace BioForge::Generator
         std::string            g_pendingRegion;
 
         void Pump();
+
+        // Defined below, beside RunRefinePass - the two are a pair, and this is
+        // called from Generate() further up.
+        void WatchDependentsOf(const Candidate&              a_changed,
+                               const std::vector<Candidate>& a_roster,
+                               std::string_view              a_digest);
 
         void OnComplete(Kind a_kind, std::uint32_t a_refFormID, const std::string& a_context,
                         const char* a_response, int a_success)
@@ -429,17 +445,17 @@ namespace BioForge::Generator
                 // Note which neighbours were still unwritten when this bio was
                 // built. If any of them get written by the end of the batch,
                 // this bio's ties were composed on incomplete information.
-                RefineWatch w{ c, {} };
+                RefineWatch w{ c, {}, {} };
                 for (const auto& other : a_roster) {
                     if (other.refFormID == c.refFormID || other.name.empty()) {
                         continue;
                     }
                     const auto known = summaries.find(other.refFormID);
                     if (known == summaries.end() || known->second.empty()) {
-                        w.unknown.push_back(other.refFormID);
+                        w.triggers.push_back(other.refFormID);
                     }
                 }
-                if (!w.unknown.empty()) {
+                if (!w.triggers.empty()) {
                     watch.push_back(std::move(w));
                 }
             }
@@ -464,9 +480,11 @@ namespace BioForge::Generator
 
         // Build the pass-two job for one subject: their own bio so the rewrite
         // does not contradict it, plus the roster as it stands NOW.
-        bool BuildRefineJob(const Candidate& a_subject, const RosterSummaries& a_summaries,
+        bool BuildRefineJob(const RefineWatch& a_watch, const RosterSummaries& a_summaries,
                             Job& a_job)
         {
+            const Candidate& a_subject = a_watch.subject;
+
             const auto staged = Staging::StagedBioFor(a_subject.refFormID);
             if (staged.empty()) {
                 return false;   // failed its first pass, or was discarded
@@ -514,6 +532,7 @@ namespace BioForge::Generator
                 "\"currentTies\":\"" +
                 Json::Escape(Staging::ExtractBlock(staged, kRefineBlock)) + "\"," +
                 "\"localActors\":\"" + Json::Escape(roster) + "\"," +
+                "\"changedActor\":\"" + Json::Escape(a_watch.triggerName) + "\"," +
                 "\"regionDigest\":\"" + Json::Escape(g_refineDigest) + "\"}";
             return true;
         }
@@ -551,6 +570,14 @@ namespace BioForge::Generator
         if (!BuildJob(a_candidate, a_roster, ResolveRoster(a_roster), digest, job)) {
             return false;
         }
+
+        // Before dispatching: note who else is describing this actor, so their
+        // ties can be corrected once the rewrite lands. Recorded NOW rather
+        // than on completion because the completion runs on a worker thread
+        // and this reads the staging store and the roster. RunRefinePass will
+        // not fire until the queue drains, by which point the new bio is
+        // staged and ResolveRoster picks up its NEW summary.
+        WatchDependentsOf(a_candidate, a_roster, digest);
 
         {
             std::lock_guard lock{ g_queueMutex };
@@ -605,6 +632,81 @@ namespace BioForge::Generator
         // that the neighbour exists. Only those who actually gained a known
         // neighbour are re-asked - a bio whose unknowns stayed unknown has
         // nothing new to say and is left alone.
+        // One actor was just (re)generated. Every OTHER staged bio that already
+        // talks about them is now describing a person who has changed - so mark
+        // those for a ties re-ask.
+        //
+        // This is the reverse direction of the batch pass. A batch asks "my
+        // neighbours were unwritten, who do I know now"; this asks "I changed,
+        // who is describing me wrongly". Without it a single Regenerate leaves
+        // the block internally inconsistent: the actor is rewritten and the
+        // bios naming them still carry the old reading, or the abstraction they
+        // fell back on while the actor had NO PROFILE YET.
+        //
+        // Deliberately narrow, because every entry here is an LLM call the user
+        // did not directly ask for:
+        //  - only bios that actually NAME the changed actor in their ties. A
+        //    bio that never mentions them has nothing to correct, and this is
+        //    what keeps a 13-bio block from firing 12 revisions.
+        //  - staged and uncommitted only. A committed bio is deliberate output;
+        //    rewriting one behind the user's back is worse than a stale line.
+        //  - honours generate.refinePass, which is the existing switch for
+        //    "spend calls on second-pass tidying" and should stay one concept.
+        void WatchDependentsOf(const Candidate&              a_changed,
+                               const std::vector<Candidate>& a_roster,
+                               std::string_view              a_digest)
+        {
+            if (!Config::Get().refinePass || a_changed.name.empty()) {
+                return;
+            }
+
+            std::vector<RefineWatch> watch;
+            for (const auto& entry : Staging::Snapshot()) {
+                if (entry.refFormID == a_changed.refFormID || entry.committed ||
+                    entry.state != Staging::State::Staged) {
+                    continue;
+                }
+
+                const auto staged = Staging::StagedBioFor(entry.refFormID);
+                if (staged.empty()) {
+                    continue;
+                }
+                const auto ties = Staging::ExtractBlock(staged, kRefineBlock);
+                if (ties.find(a_changed.name) == std::string::npos) {
+                    continue;   // says nothing about them: nothing to correct
+                }
+
+                // Re-asking needs the Candidate, not just the staged entry -
+                // BuildRefineJob reads race/follower state off it. An actor who
+                // has since left the scan cannot be rebuilt, so skip and say so.
+                const auto found = std::find_if(
+                    a_roster.begin(), a_roster.end(),
+                    [&](const Candidate& c) { return c.refFormID == entry.refFormID; });
+                if (found == a_roster.end()) {
+                    logs::info("refine: {} names {} but is no longer in the scan - left as written"sv,
+                               entry.name, a_changed.name);
+                    continue;
+                }
+
+                watch.push_back(
+                    RefineWatch{ *found, { a_changed.refFormID }, a_changed.name });
+            }
+
+            if (watch.empty()) {
+                return;
+            }
+
+            {
+                std::lock_guard lock{ g_queueMutex };
+                g_refineWatch.insert(g_refineWatch.end(), watch.begin(), watch.end());
+                g_refineRoster = a_roster;
+                g_refineDigest = a_digest;
+            }
+            logs::info("refine: {} staged bio(s) describe {} - their ties will be re-asked "
+                       "once the rewrite lands"sv,
+                       watch.size(), a_changed.name);
+        }
+
         void RunRefinePass()
         {
             std::vector<RefineWatch> watch;
@@ -626,7 +728,7 @@ namespace BioForge::Generator
             std::vector<Job> jobs;
             for (const auto& w : watch) {
                 const bool gained =
-                    std::any_of(w.unknown.begin(), w.unknown.end(), [&](std::uint32_t a_ref) {
+                    std::any_of(w.triggers.begin(), w.triggers.end(), [&](std::uint32_t a_ref) {
                         const auto known = summaries.find(a_ref);
                         return known != summaries.end() && !known->second.empty();
                     });
@@ -635,7 +737,7 @@ namespace BioForge::Generator
                 }
 
                 Job job;
-                if (BuildRefineJob(w.subject, summaries, job)) {
+                if (BuildRefineJob(w, summaries, job)) {
                     jobs.push_back(std::move(job));
                 }
             }
@@ -651,8 +753,8 @@ namespace BioForge::Generator
                     g_queue.push_back(std::move(job));
                 }
             }
-            logs::info("refine: {} bio(s) had ties written before their neighbours existed - "
-                       "rewriting those"sv,
+            logs::info("refine: rewriting ties for {} bio(s) whose neighbours have changed "
+                       "since they were written"sv,
                        count);
             Pump();
         }
