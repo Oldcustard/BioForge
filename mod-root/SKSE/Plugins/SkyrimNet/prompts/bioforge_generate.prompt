@@ -74,6 +74,11 @@ as a character sheet an actor could play from, not as an encyclopedia entry.
 - **Never invent quest outcomes, secret identities, or relationships with named
   characters the evidence does not mention.** Other NPCs have their own profiles and
   will not corroborate your invention.
+- **The player is never in the profile.** The other speaker in the dialogue transcript is
+  the player, under whatever name that save uses. Never name them, never write this
+  character as their follower, companion, employer or friend, and never treat a "follow
+  me" line as something that has already happened. Write the character as they are before
+  the player ever speaks to them.
 - **Faction names are evidence.** A faction naming a place or trade tells you where they
   belong and what they do.
 - **Being somewhere is not working there.** Most people in an inn, shop or house are
@@ -301,10 +306,30 @@ have heard of.
 {% endif %}## Their own dialogue
 {# THE most important evidence: what this character actually says, as authored by
    whoever made them. A long tree means a written character; a couple of vendor
-   lines means the mod author never wrote one. #}
+   lines means the mod author never wrote one.
+
+   Two things about this transcript have to be spelled out, because both were read
+   wrongly. The OTHER speaker is the player, under whatever name that save uses, and
+   nothing in the text says so - a follower mod's Taliesin came out written as the
+   travelling companion of "Jorin Good-Hands", who is simply the person holding the
+   controller. And these are lines that COULD be said, not lines that HAVE been: the
+   recruitment line of every follower mod sits in here from the moment the NPC exists,
+   so a stranger looks like an established companion. #}
 {% if dlg.hasContent %}{{ dlg.text }}
 {% else %}(none available - this NPC has no dialogue of their own right now)
 {% endif %}
+**Read this transcript carefully.** The other speaker is THE PLAYER - the person playing
+the game - shown under their character's name. That name is not an NPC, is not this
+character's friend, employer or travelling companion, and must NEVER appear in the
+profile you write. Nothing about the player belongs in a bio: they may not have met this
+character yet at all.
+
+These are lines this character CAN say, not a record of anything that has happened. A
+"follow me" exchange, an offer to travel together, a hire price or a dismissal is the
+mod's recruitment script sitting ready - it does NOT mean this character is or ever was
+anyone's companion. Write them as they are before any of it happens: someone with a life
+of their own who could be asked. Use the dialogue for their voice, vocabulary, trade and
+opinions, which is what it is genuinely evidence of.
 {% if length(localActors) > 0 %}## Other named people in this same place
 {# Supplied by the DLL from its own scan, because relatedActors is built on
    shared EVENT history and is empty for a place the player has only just
