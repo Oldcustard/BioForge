@@ -2,21 +2,14 @@
 #include <string>
 #include <windows.h>
 #include <functional>
+#include "PublicAPIMemoryQuery.h"
 
 /**
  * SkyrimNet Public API — loaded at runtime via LoadLibraryA + GetProcAddress.
  *
- * Drop this header into your SKSE plugin project. Call FindFunctions() once
- * during initialization (e.g., SKSE kDataLoaded message). If it returns true,
- * the function pointers below are ready to use.
- *
- * ## Initialization timing
- *
- * Call FindFunctions() during kDataLoaded. After it returns true:
- *   - Action registration works immediately.
- *   - Data query functions are safe to call but return empty results until
- *     the database initializes — which happens when a save is loaded (or a
- *     new game starts). Use PublicIsMemorySystemReady() to check.
+ * Drop this header into your SKSE plugin project and call FindFunctions() once during kDataLoaded.
+ * Action registration works immediately; data queries return empty results until a save is loaded
+ * (check PublicIsMemorySystemReady()).
  *
  * Quick start:
  * @code
@@ -57,14 +50,15 @@ extern "C" {
 // =============================================================================
 
 /**
- * Returns the runtime API version (currently 9).
+ * Returns the runtime API version (currently 10).
  * Version history: 2 = action registration, 3 = data queries + UUID + config,
  *                  4 = diary queries,
  *                  5 = decorator registration + event callbacks + memory creation,
  *                  6 = actor busy state,
  *                  7 = save unique ID + world knowledge CRUD,
  *                  8 = send custom prompt to LLM,
- *                  9 = per-actor world knowledge for prompt enrichment.
+ *                  9 = per-actor world knowledge for prompt enrichment,
+ *                 10 = filtered memory queries.
  */
 int (*PublicGetVersion)() = nullptr;
 
@@ -187,6 +181,16 @@ std::string (*PublicGetBioTemplateName)(uint32_t formId) = nullptr;
 std::string (*PublicGetMemoriesForActor)(uint32_t formId, int maxCount, const char* contextQuery) = nullptr;
 
 /**
+ * Retrieve memories for an actor with explicit filtering and ordering (v10+). Filters apply in SQL
+ * before truncation. Prefer the typed QueryMemoriesForActor() wrapper at the bottom of this header.
+ *
+ * @param formId    Actor FormID.
+ * @param queryJSON JSON filter object. Empty or "{}" behaves like PublicGetMemoriesForActor(formId, 50, "").
+ * @return The same JSON array shape PublicGetMemoriesForActor returns; "[]" on error or malformed JSON.
+ */
+std::string (*PublicQueryMemoriesForActor)(uint32_t formId, const char* queryJSON) = nullptr;
+
+/**
  * Retrieve recent world events, optionally filtered.
  *
  * @param formId          Actor FormID (0 = all events, non-zero = events
@@ -249,12 +253,7 @@ std::string (*PublicGetRecentDialogue)(uint32_t formId, int maxExchanges) = null
 std::string (*PublicGetLatestDialogueInfo)() = nullptr;
 
 /**
- * Check if the memory/database system is initialized and ready for queries.
- *
- * Returns false until a save is loaded or a new game is started. All data
- * query functions are safe to call regardless — they return empty results
- * when the database isn't ready — but this lets you avoid unnecessary calls.
- *
+ * Check if the memory/database system is ready for queries. False until a save is loaded or a new game starts.
  * @return true if the database is ready.
  */
 bool (*PublicIsMemorySystemReady)() = nullptr;
@@ -384,11 +383,7 @@ std::string (*PublicGetDiaryEntries)(uint32_t formId, int maxCount, double start
 // =============================================================================
 
 /**
- * Create and store a memory for an actor.
- *
- * Creates a first-class memory with vector embedding for semantic search.
- * The memory integrates with get_relevant_memories(), importance decay, and
- * all existing retrieval mechanisms.
+ * Create and store a first-class memory (with vector embedding) for an actor.
  *
  * @param formId             Actor FormID (the memory owner).
  * @param contentText        Memory content text (embedded for semantic search).
@@ -434,11 +429,7 @@ std::string (*PublicGetPluginConfigValue)(const char* pluginName, const char* pa
 // =============================================================================
 
 /**
- * Register a custom decorator for use in Inja templates and action eligibility rules.
- *
- * Decorators are invoked with the current NPC's Actor* and return a string value.
- * In templates: {{ my_decorator(actor_uuid) }} renders the returned string.
- * In eligibility rules: the returned string is compared via operators (==, !=, >, <, etc.).
+ * Register a custom decorator for Inja templates ({{ my_decorator(actor_uuid) }}) and action eligibility rules.
  *
  * @param name         Unique decorator identifier (e.g., "intel_standing").
  *                     Must not conflict with built-in decorators.
@@ -533,36 +524,22 @@ bool (*PublicUnregisterEventCallback)(uint64_t callbackId) = nullptr;
 // =============================================================================
 
 /**
- * Mark an actor as busy with a multi-step action.
- *
- * While busy, the is_busy() decorator returns true and busy_reason() returns
- * the reason string, allowing action YAMLs to exclude busy actors via
- * eligibility rules — either all busy states or selectively by reason.
- * The plugin is responsible for calling PublicClearActorBusy() when done.
+ * Mark an actor as busy with a multi-step action. While busy, is_busy() returns true and busy_reason()
+ * returns the reason string for eligibility rules. The plugin must call PublicClearActorBusy() when done.
  *
  * @param formId   The actor's FormID.
  * @param reason   Short reason string (e.g., "arrest", "travel", "crafting").
- *                 Queryable via busy_reason() decorator for selective exclusions.
  * @return true on success, false if the FormID couldn't be resolved.
  */
 bool (*PublicSetActorBusy)(uint32_t formId, const char* reason) = nullptr;
 
 /**
  * Clear an actor's busy state.
- *
- * Call this when the multi-step action completes (or fails/is interrupted).
- *
- * @param formId   The actor's FormID.
  * @return true on success, false if the FormID couldn't be resolved.
  */
 bool (*PublicClearActorBusy)(uint32_t formId) = nullptr;
 
-/**
- * Check if an actor is currently busy.
- *
- * @param formId   The actor's FormID.
- * @return true if the actor is busy, false otherwise.
- */
+/** Check if an actor is currently busy. */
 bool (*PublicIsActorBusy)(uint32_t formId) = nullptr;
 
 // =============================================================================
@@ -580,11 +557,7 @@ std::string (*PublicGetSaveUniqueID)() = nullptr;
 // =============================================================================
 
 /**
- * Create a world knowledge entry.
- *
- * World knowledge entries are shared facts that apply to NPCs based on
- * condition expressions. Unlike PublicAddMemory (per-actor), these are
- * retrieved for any NPC whose condition evaluates to true.
+ * Create a world knowledge entry: a shared fact retrieved for any NPC whose condition expression is true.
  *
  * @param content       Knowledge text (required, non-empty). Embedded for semantic search.
  * @param conditionExpr Inja condition expression controlling which NPCs receive this.
@@ -636,29 +609,13 @@ bool (*PublicRemoveWorldKnowledge)(int memoryId) = nullptr;
 std::string (*PublicGetWorldKnowledge)(int maxCount) = nullptr;
 
 /**
- * Get world knowledge entries applicable to a specific actor as a JSON array.
- *
- * Mirrors the get_world_knowledge() Inja decorator used in dialogue prompts —
- * but exposed at C++ level so plugins can attach knowledge to their own
- * pre-built prompt context (faction leaders, candidate pools, etc.).
- *
- * Two retrieval modes based on `searchQuery`:
- *   - "" (empty)    — cheap path: deterministic always-inject entries only.
- *                     Cache scan + condition evaluation, no HNSW. Suitable for
- *                     hot per-NPC enrichment loops.
- *   - non-empty     — combined: always-inject + semantic HNSW search. Use only
- *                     when you have a concrete query (e.g., "faction war").
- *
- * Resolves formId → UUID internally via UUIDResolver.
- *
- * Thread-safe (KnowledgeManager uses shared_mutex). Returns "[]" on error,
- * unknown formId, or empty result.
+ * Get world knowledge entries applicable to a specific actor (the C++ side of the get_world_knowledge() decorator).
+ * An empty searchQuery returns always-inject entries only (cheap, no HNSW); a non-empty one adds semantic search.
  *
  * @param formId       Actor FormID. 0 returns "[]".
  * @param maxResults   Maximum entries to return (<=0 defaults to 5).
- * @param searchQuery  Inja semantic search query, or "" for always-inject only.
- * @return JSON array: [{"content":"...","always_inject":true,"importance":0.8,
- *         "display_name":"..."}, ...]. "[]" if none.
+ * @param searchQuery  Semantic search query, or "" for always-inject only.
+ * @return JSON array: [{"content":"...","always_inject":true,"importance":0.8,"display_name":"..."}, ...]. "[]" if none.
  */
 std::string (*PublicGetWorldKnowledgeForActor)(uint32_t formId, int maxResults,
                                                const char* searchQuery) = nullptr;
@@ -668,11 +625,8 @@ std::string (*PublicGetWorldKnowledgeForActor)(uint32_t formId, int maxResults,
 // =============================================================================
 
 /**
- * Send a custom prompt to the LLM and receive the response asynchronously.
- *
- * Renders the named prompt template (with optional context variables), submits
- * it to the configured LLM, and calls the callback on a ThreadPool worker when
- * done. The callback must be thread-safe — do NOT call RE:: functions from it.
+ * Render the named prompt template, send it to the LLM, and call the callback on a ThreadPool worker.
+ * The callback must be thread-safe; do not call RE:: functions from it.
  *
  * @param promptName   Template name registered with ContextEngine (required).
  * @param variant      OpenRouter variant to use. Pass "" for the default variant.
@@ -701,13 +655,8 @@ bool (*PublicSendCustomPromptToLLM)(const char* promptName, const char* variant,
 // =============================================================================
 
 /**
- * Load SkyrimNet and resolve all exported function pointers.
- *
- * Call once during plugin initialization (e.g., SKSE DataLoaded message).
- * After this returns true, check individual function pointers before use —
- * functions from newer API versions may be nullptr if the installed
- * SkyrimNet is older.
- *
+ * Load SkyrimNet and resolve all exported function pointers. Call once during kDataLoaded.
+ * Functions from newer API versions stay nullptr when the installed SkyrimNet is older, so check before use.
  * @return true if SkyrimNet.dll was loaded and at least PublicGetVersion resolved.
  */
 inline bool FindFunctions() {
@@ -834,9 +783,33 @@ inline bool FindFunctions() {
                 PublicGetWorldKnowledgeForActor = reinterpret_cast<std::string(*)(uint32_t, int, const char*)>(
                     GetProcAddress(hDLL, "PublicGetWorldKnowledgeForActor"));
             }
+
+            // v10+ functions
+            if (version >= 10) {
+                PublicQueryMemoriesForActor = reinterpret_cast<std::string(*)(uint32_t, const char*)>(
+                    GetProcAddress(hDLL, "PublicQueryMemoriesForActor"));
+            }
         }
         return true;
     }
     return false;
 }
+}
+
+/**
+ * Typed wrapper over PublicQueryMemoriesForActor (v10+). Returns "[]" when the installed SkyrimNet predates v10.
+ *
+ * @code
+ *   MemoryQuery q;
+ *   q.excludeTags   = {"mymod_writeback"};
+ *   q.minImportance = 0.4f;
+ *   q.orderBy       = MemoryOrder::ImportanceDesc;
+ *   q.maxCount      = 10;
+ *
+ *   std::string memories = QueryMemoriesForActor(formId, q);
+ * @endcode
+ */
+inline std::string QueryMemoriesForActor(uint32_t formId, const MemoryQuery& query) {
+    if (PublicQueryMemoriesForActor == nullptr) return "[]";
+    return PublicQueryMemoriesForActor(formId, MemoryQueryToJSON(query).c_str());
 }

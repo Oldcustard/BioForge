@@ -6,6 +6,8 @@
 #include <string_view>
 #include <vector>
 
+#include "ContentLibrary.h"
+
 namespace BioForge
 {
     struct Candidate;
@@ -33,20 +35,23 @@ namespace BioForge
         {
             std::uint32_t refFormID{};
             std::string   name;          // NPC display name
-            std::string   fileName;      // "gudra_59A6.prompt" - target under characters/
-            std::string   stagingDir;    // bundle dir under bioforge_staging/
+            std::string   fileName;      // "gudra_59A6.prompt" - target bio slot
+            std::string   stagingDir;    // bundle dir under BioForge/staging/
             State         state{ State::Generating };
             std::string   note;          // failure reason / parse gaps / commit result
+            bool          committing{};  // a commit HTTP call is in flight
             bool          committed{};
             bool          refined{};     // ties rewritten by the second pass
         };
 
-        // <Data>/SKSE/Plugins/SkyrimNet/prompts, resolved from this DLL's own
-        // location. Reads and writes go through the game process's USVFS view,
-        // so staged files land where SkyrimNet can actually open them (files
-        // created by an EXTERNAL process while the game runs are enumerated by
-        // SkyrimNet's path scan but fail to open).
-        std::filesystem::path PromptsDir();
+        // <Data>/SKSE/Plugins/BioForge/staging, resolved from this DLL's own
+        // location. Reads and writes go through the game process's USVFS view
+        // so everything stays inside the running game's world (files created
+        // by an EXTERNAL process while the game runs are enumerated by
+        // SkyrimNet's path scan but fail to open). Deliberately NOT under
+        // SkyrimNet's content tree: staging bundles are audit trail, not
+        // content, and Beta 25 rejects anything but real content there.
+        std::filesystem::path StagingRoot();
 
         // Target bio file name for a candidate. Prefers SkyrimNet's own
         // resolution (it may disambiguate); otherwise derives the corpus
@@ -93,14 +98,18 @@ namespace BioForge
         // the way in gives the same guarantee and leaves the last session's
         // bundles readable in the meantime, which is useful when a generation
         // went wrong and you want to see the prompt that produced it.
-        // Committed bios live in prompts/characters and are never touched.
+        // Committed bios live in SkyrimNet's content library and are never
+        // touched.
         void ClearStaged();
 
-        // Move a staged bio into prompts/characters/. Any existing file is
-        // backed up first as <name>.prompt.backup.<unixtime> (SkyrimNet's own
-        // convention), then the prompt cache is reloaded best-effort so the bio
-        // resolves without a restart. Returns false with a_note on failure.
-        bool Commit(const Entry& a_entry, std::string& a_note);
+        // Commit a staged bio into SkyrimNet's content library (the player's
+        // overlay layer), through SkyrimNet's own HTTP API so its ContentStore
+        // rescans and the bio goes live in seconds. Asynchronous: the HTTP
+        // call runs on a worker thread - Commit itself never blocks, and the
+        // outcome lands in the entry's committed/note fields by the next
+        // Snapshot. Returns false only when there is nothing staged to commit;
+        // a transport failure is reported through the note.
+        bool Commit(const Entry& a_entry);
 
         // Pull the body of one `{% block %}` out of .prompt text. Empty when
         // there is no such block.
@@ -124,7 +133,12 @@ namespace BioForge
         // and the model invents what each neighbour is like - which is how a
         // paying guest became a housemate and a girl from Ivarstead became a
         // resident, both of whom already had bios saying otherwise.
-        std::string BioSummary(const Candidate& a_candidate);
+        //
+        // The content index is passed in rather than built here: BioSummary
+        // runs once per roster line, and one Build() per line would re-sweep
+        // the whole library per batch-mate.
+        std::string BioSummary(const Candidate&                        a_candidate,
+                               const ContentLibrary::Index& a_committed);
 
         // The staged bio as written, for the review panel. Empty if the bundle
         // has no bio (a failed parse) or cannot be read.
@@ -151,8 +165,9 @@ namespace BioForge
                                std::string_view a_rawResponse, std::string& a_note);
 
         // Reject a staged bio: delete its bundle and drop it from the review
-        // list. Does NOT touch an already-committed file in prompts/characters
-        // - undoing a commit means restoring its .prompt.backup.<time>.
+        // list. Does NOT touch an already-committed bio in the content
+        // library - undoing a commit means deleting the file in SkyrimNet's
+        // dashboard.
         void Discard(const Entry& a_entry);
     }
 }

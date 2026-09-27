@@ -22,8 +22,10 @@ namespace BioForge::SN
     bool Available();
     int  Version();
 
-    // v8+. False when SkyrimNet predates PublicSendCustomPromptToLLM, in which
-    // case BioForge can scan but never generate.
+    // v10+ (SkyrimNet Beta 25): the whole pipeline assumes the content
+    // library - prompt templates resolve from layers, bios live across
+    // layers, commits go through the dashboard API. False against anything
+    // older, in which case BioForge can scan but never generate.
     bool CanGenerate();
 
     // The canonical bio template name for a placed reference, or "" if SkyrimNet
@@ -33,6 +35,10 @@ namespace BioForge::SN
 
     // Data queries return empty until a save is loaded.
     bool MemorySystemReady();
+
+    // The loaded playthrough's id, or "" before a save loads. It is also the
+    // folder name of that playthrough's per-save layer, saves/<id>/.
+    std::string SaveUniqueID();
 
     // SkyrimNet's internal id for a placed actor, or 0 when unknown. The prompt
     // context wants it as a HEX STRING - decorators misresolve decimal strings

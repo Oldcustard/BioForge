@@ -3,14 +3,17 @@
 #include "StagingStore.h"
 
 #include "Config.h"
+#include "ContentLibrary.h"
 #include "ScopeSelector.h"
+#include "SkyrimNetAPI.h"
+#include "SkyrimNetWeb.h"
 
 #include <array>
 #include <cctype>
-#include <chrono>
 #include <cstdio>
 #include <fstream>
 #include <mutex>
+#include <thread>
 
 namespace BioForge::Staging
 {
@@ -71,7 +74,7 @@ namespace BioForge::Staging
             if (stem.ends_with(".prompt")) {
                 stem.resize(stem.size() - 7);
             }
-            return PromptsDir() / "bioforge_staging" / stem;
+            return StagingRoot() / stem;
         }
 
         Entry* FindLocked(std::uint32_t a_refFormID)
@@ -85,24 +88,12 @@ namespace BioForge::Staging
         }
     }
 
-    std::filesystem::path PromptsDir()
+    std::filesystem::path StagingRoot()
     {
-        // Resolve from this DLL's own module: the game process's USVFS view of
-        // Data/SKSE/Plugins is exactly what SkyrimNet reads and writes through,
-        // which is the whole point of committing from in here.
-        HMODULE module = nullptr;
-        GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
-                               GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-                           reinterpret_cast<LPCWSTR>(&PromptsDir), &module);
-
-        wchar_t buffer[MAX_PATH * 2]{};
-        if (!module || !GetModuleFileNameW(module, buffer, static_cast<DWORD>(std::size(buffer)))) {
-            logs::error("staging: cannot locate own module - falling back to relative path"sv);
-            return std::filesystem::path{ "Data/SKSE/Plugins/SkyrimNet/prompts" };
-        }
-
-        // <...>/SKSE/Plugins/BioForge.dll -> <...>/SKSE/Plugins/SkyrimNet/prompts
-        return std::filesystem::path{ buffer }.parent_path() / "SkyrimNet" / "prompts";
+        // Beside the DLL, NOT inside SkyrimNet's content tree: staging
+        // bundles are audit trail, not content, and Beta 25's layer scanner
+        // rejects anything but real content under its roots.
+        return ContentLibrary::SkyrimNetDir().parent_path() / "BioForge" / "staging";
     }
 
     std::string BioFileName(const Candidate& a_candidate)
@@ -395,7 +386,8 @@ namespace BioForge::Staging
         return std::string{ Trim(body) };
     }
 
-    std::string BioSummary(const Candidate& a_candidate)
+    std::string BioSummary(const Candidate& a_candidate,
+                           const ContentLibrary::Index& a_committed)
     {
         std::string file{ BioFileName(a_candidate) };
         if (file.ends_with(".prompt")) {
@@ -404,8 +396,13 @@ namespace BioForge::Staging
 
         // Staging first: a batch-mate written minutes ago has not been
         // committed yet, but it is the truest thing available about them.
-        for (const auto& path : { PromptsDir() / "bioforge_staging" / file / "bio.prompt",
-                                  PromptsDir() / "characters" / (file + ".prompt") }) {
+        // Then the content library's winning copy, wherever it lives.
+        std::vector<std::filesystem::path> candidates{ StagingRoot() / file / "bio.prompt" };
+        if (const auto* winning = a_committed.Find(file)) {
+            candidates.push_back(winning->path);
+        }
+
+        for (const auto& path : candidates) {
             const auto text = ReadWholeFile(path);
             if (text.empty()) {
                 continue;
@@ -575,7 +572,7 @@ namespace BioForge::Staging
 
     void ClearStaged()
     {
-        const auto root = PromptsDir() / "bioforge_staging";
+        const auto root = StagingRoot();
 
         std::error_code ec;
         if (!std::filesystem::is_directory(root, ec)) {
@@ -593,74 +590,68 @@ namespace BioForge::Staging
         }
     }
 
-    bool Commit(const Entry& a_entry, std::string& a_note)
+    bool Commit(const Entry& a_entry)
     {
-        // SkyrimNet resolves bios by TEMPLATE NAME (no extension), but the file
-        // on disk must still be <name>.prompt or nothing will ever find it.
-        std::string file{ a_entry.fileName };
-        if (!file.ends_with(".prompt")) {
-            file += ".prompt";
-        }
-
-        const auto target = PromptsDir() / "characters" / file;
         const auto source = std::filesystem::path{ a_entry.stagingDir } / "bio.prompt";
-
         {
             std::error_code ec;
-            if (!std::filesystem::exists(source, ec)) {
-                a_note = "staged bio.prompt not found: " + source.string();
-                return false;
-            }
-        }
-
-        // Backup any existing file first, SkyrimNet's own convention.
-        {
-            std::error_code ec;
-            std::filesystem::create_directories(target.parent_path(), ec);
-            if (std::filesystem::exists(target, ec)) {
-                const auto secs = std::chrono::duration_cast<std::chrono::seconds>(
-                                      std::chrono::system_clock::now().time_since_epoch())
-                                      .count();
-                const auto backup =
-                    target.string() + ".backup." + std::to_string(secs);
-                std::filesystem::rename(target, backup, ec);
-                if (ec) {
-                    a_note = "could not back up existing file: " + ec.message();
-                    return false;
+            if (a_entry.stagingDir.empty() || !std::filesystem::exists(source, ec)) {
+                std::lock_guard lock{ g_mutex };
+                if (Entry* e = FindLocked(a_entry.refFormID)) {
+                    e->note = "staged bio.prompt not found: " + source.string();
                 }
-            }
-        }
-
-        {
-            std::error_code ec;
-            std::filesystem::copy_file(source, target,
-                                       std::filesystem::copy_options::overwrite_existing, ec);
-            if (ec) {
-                a_note = "copy failed: " + ec.message();
                 return false;
             }
         }
 
-        a_note = "committed " + target.string();
+        // Resolve the UUID here, on the calling (UI) thread: the worker that
+        // follows must stay free of game-data reads, and this export is a
+        // cheap table lookup. 0 is acceptable - the commit then relies on the
+        // update-by-path half of the web call.
+        const auto uuid = SN::FormIDToUUID(a_entry.refFormID);
 
-        // No cache reload is asked for, and none is needed. SkyrimNet's
-        // PromptEngine loads a character template on demand and then polls it
-        // for changes ("Checking for changes in prompt file: characters/..."),
-        // so a bio committed from inside the game process is picked up on its
-        // own. Measured: committed at 21:26:54 with the reload suppressed, and
-        // SkyrimNet had rendered the new bio into dialogue by 21:27:00 with no
-        // rescan of any kind in between. The old path asked the loopback server
-        // to rebuild a ~7,200 entry cache, which took 2.4-10.7s and, because
-        // Commit runs on the UI thread, once froze the game on every press.
+        std::string stem{ a_entry.fileName };
+        if (stem.ends_with(".prompt")) {
+            stem.resize(stem.size() - 7);
+        }
+        const std::string name{ a_entry.name };
+        const std::string stagingDir{ a_entry.stagingDir };
 
         {
             std::lock_guard lock{ g_mutex };
-            if (Entry* e = FindLocked(a_entry.refFormID)) {
-                e->committed = true;
-                e->note      = a_note;
+            Entry*          e = FindLocked(a_entry.refFormID);
+            if (!e) {
+                return false;
             }
+            if (e->committing) {
+                return true;   // a press already in flight; let it land
+            }
+            e->committing = true;
+            e->note        = "committing...";
         }
-        logs::info("commit: {}"sv, a_note);
+
+        // The HTTP round trip (plus SkyrimNet's content rescan behind it) can
+        // take seconds - exactly the class of call that once froze the game
+        // when Commit ran it on the UI thread. Fire and forget: the worker
+        // records the outcome under the mutex and the next Snapshot shows it.
+        std::thread{ [refFormID = a_entry.refFormID, name, stem, stagingDir, uuid]() {
+            const auto    bio    = ReadWholeFile(std::filesystem::path{ stagingDir } /
+                                                 "bio.prompt");
+            const auto    result = Web::CreateOrUpdateBio(name, uuid, stem, bio);
+
+            std::lock_guard lock{ g_mutex };
+            if (Entry* e = FindLocked(refFormID)) {
+                e->committing = false;
+                e->committed  = result.ok;
+                e->note       = result.note;
+                if (result.ok) {
+                    logs::info("commit: {} -> {}"sv, name, result.note);
+                } else {
+                    logs::error("commit: {} failed - {}"sv, name, result.note);
+                }
+            }
+        } }.detach();
+
         return true;
     }
 }

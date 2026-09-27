@@ -48,7 +48,7 @@ Open SKSE Menu Framework's mod control panel (default **`x`**, set in
 
 3. **Review.** Each result is staged, not written. Open one in the reader to see the
    bio as it would be committed, or flip to the raw model reply when a parse failed.
-   Nothing touches your `prompts/characters/` folder until you press Commit.
+   Nothing touches your SkyrimNet content until you press Commit.
 
 4. **Refine.** Relationships get a second look whenever the people they describe change.
    When a batch finishes, any bio written while its neighbours still had no profile gets
@@ -58,9 +58,17 @@ Open SKSE Menu Framework's mod control panel (default **`x`**, set in
    committed bios are left alone, and a failure leaves the original as it was. Turn it off
    with `generate.refinePass`.
 
-5. **Commit.** Writes the bio into `prompts/characters/`. SkyrimNet picks up the new file
-   on its own, so the character speaks with their new personality without restarting the
-   game. Any existing file is backed up first as `<name>.prompt.backup.<unixtime>`.
+5. **Commit.** Writes the bio into your SkyrimNet content library — specifically your
+   overlay, the layer the dashboard keeps your own edits in — through SkyrimNet's own
+   content API. That API rescans the library and refreshes its template caches, so the
+   character speaks with their new personality without restarting the game. The write
+   rides SkyrimNet's loopback web server, which the dashboard uses for the same
+   operation; the panel warns you up front if that server is switched off.
+
+   A row showing **dynamic** is not a gap: this playthrough already has an evolving
+   engine-written bio for that NPC (SkyrimNet's dynamic bio feature). Regenerating one
+   would throw away characterisation the save has built up — and a new static bio would
+   lose to the dynamic copy anyway, because SkyrimNet renders it first.
 
 6. **Clear up.** **Discard** throws away a staged bio you don't want — it is the only
    copy, so that is the end of it. **Dismiss** takes a committed one off the review
@@ -81,10 +89,10 @@ Someone found mid-errand in a tavern is written as who they are rather than as a
 and where the record genuinely says nothing, the prompt is told that too instead of being
 left to guess from the room.
 
-Staged work lives in `SKSE/Plugins/SkyrimNet/prompts/bioforge_staging/<name>/` and
-holds three files — `harvest.json` (what the model was asked), `response.raw.txt`
-(what it answered) and `bio.prompt` (what would be committed). It is scratch: it is
-cleared when the game loads, and committed bios are never touched by that.
+Staged work lives in `SKSE/Plugins/BioForge/staging/<name>/` and holds three files —
+`harvest.json` (what the model was asked), `response.raw.txt` (what it answered) and
+`bio.prompt` (what would be committed). It is scratch: it is cleared when the game
+loads, and committed bios are never touched by that.
 
 ## The regional digest
 
@@ -118,9 +126,10 @@ text — read them, and delete one if you don't like it.
 
 ## Requirements
 
-- [SkyrimNet](https://goncalo22.github.io/SkyrimNet-GamePlugin/) with public API **v8+**
-  (v8 introduced `SendCustomPromptToLLM`; the scan itself needs only v3, and world
-  knowledge in the harvest needs v9)
+- [SkyrimNet](https://goncalo22.github.io/SkyrimNet-GamePlugin/) **Beta 25+** (public API
+  **v10+**). Beta 25 moved all SkyrimNet content into a layer-based content library —
+  Bio Forge ships its prompt templates as an external layer, reads bios from every
+  layer, and commits through the content API, so none of it works against Beta 24.
 - SKSE, Address Library for SKSE Plugins
 - [SKSE Menu Framework](https://www.nexusmods.com/skyrimspecialedition/mods/120352) v3 —
   the entire UI. Bio Forge deliberately registers **no hotkey of its own**: SMF already
@@ -129,8 +138,14 @@ text — read them, and delete one if you don't like it.
   Virtual-Key code while CommonLibSSE reports DirectInput scan codes — so two hotkey
   settings sitting side by side would not even agree on what "F10" means.)
 
-A committed bio goes live straight away — SkyrimNet loads a character template on demand
-and watches it for changes, so there is no cache to rebuild and no restart to sit through.
+A committed bio goes live straight away — the content API's write triggers SkyrimNet's
+own library rescan and template refresh, so there is no cache to rebuild and no restart
+to sit through.
+
+Coming from a Beta 24 install with Bio Forge bios already committed? Those old files sit
+in `SKSE/Plugins/SkyrimNet/prompts/characters/` and are no longer read. Use SkyrimNet's
+dashboard: **Plugins → Import Old Content** copies them into your own layer, and from
+then on Bio Forge sees them again.
 
 ## Install
 
@@ -138,11 +153,16 @@ Install as a normal mod (MO2 / Vortex). The archive is already Data-shaped:
 
 ```
 SKSE/Plugins/BioForge.dll
-SKSE/Plugins/SkyrimNet/config/plugins/BioForge/manifest.yaml
-SKSE/Plugins/SkyrimNet/prompts/bioforge_generate.prompt
-SKSE/Plugins/SkyrimNet/prompts/bioforge_region_digest.prompt
-SKSE/Plugins/SkyrimNet/prompts/bioforge_refine_ties.prompt
+SKSE/Plugins/SkyrimNet/external/oldcustard.bioforge/manifest.json
+SKSE/Plugins/SkyrimNet/external/oldcustard.bioforge/prompts/bioforge_generate.prompt
+SKSE/Plugins/SkyrimNet/external/oldcustard.bioforge/prompts/bioforge_refine_ties.prompt
+SKSE/Plugins/SkyrimNet/external/oldcustard.bioforge/prompts/bioforge_region_digest.prompt
+SKSE/Plugins/SkyrimNet/external/oldcustard.bioforge/settings/BioForge.yaml
 ```
+
+The `external/` folder is SkyrimNet Beta 25's route for content shipped inside a mod:
+SkyrimNet registers it on start-up, enabled, and lists it on the Installed Plugins page
+with an **External** badge. Removing the mod removes the layer.
 
 ## Configuration
 
@@ -254,16 +274,20 @@ where they could collide with another plugin's copy, while the dynamic CRT is
 ```
 CMakeLists.txt
 dll-source/include/SkyrimNet_PublicAPI.h   vendored from SkyrimNet, unmodified
+dll-source/include/PublicAPIMemoryQuery.h  vendored with it (typed memory-query wrapper)
 dll-source/src/main.cpp                    SKSE entry, API binding, version gate
 dll-source/src/UI.{h,cpp}                  SKSE Menu Framework page
 dll-source/src/SkyrimNetAPI.{h,cpp}        wrapper - the only TU including the vendor header
+dll-source/src/SkyrimNetWeb.{h,cpp}        commits through SkyrimNet's loopback content API
 dll-source/src/Config.{h,cpp}              settings via SkyrimNet's config store
+dll-source/src/ContentLibrary.{h,cpp}      the Beta 25 content-library index (bios per layer)
 dll-source/src/ScopeSelector.{h,cpp}       actor enumeration + gap detection
 dll-source/src/Generator.{h,cpp}           context assembly, queue, dispatch
 dll-source/src/RegionDigest.{h,cpp}        per-settlement reference sheet
 dll-source/src/StagingStore.{h,cpp}        response parsing, staging bundle, commit
 dll-source/src/Json.h                      context escaping; there is no JSON library
 mod-root/                                  files shipped verbatim into the mod
+mod-root/.../external/oldcustard.bioforge/ the SkyrimNet content layer (prompt templates)
 tools/render_probe.py                      prompt iteration against the live game
 dev-notes/                                 why the non-obvious rules exist (see CLAUDE.md)
 ```
@@ -279,6 +303,9 @@ instead of failing to load:
   is ~519 KB of header-only ImGui bindings, included only by `UI.cpp`. It calls
   `std::filesystem` without including it, so `pch.h` must come first.
 
-The two `.prompt` files under `mod-root/` carry the entire data harvest on purpose, so
-prompts can be tuned without rebuilding the DLL. Their headers document the renderer
-quirks that govern any edit to them — read those before changing a template.
+The three `.prompt` files under `mod-root/.../external/oldcustard.bioforge/` carry the
+entire data harvest on purpose, so prompts can be tuned without rebuilding the DLL —
+edit them in the layer and restart the game (SkyrimNet reads the layer at start-up).
+Their headers document the renderer quirks that govern any edit to them — read those
+before changing a template. Bump the layer's `manifest.json` version whenever the files
+change.

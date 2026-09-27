@@ -1,0 +1,16 @@
+{
+  "author": "oldcustard",
+  "description": "The SkyrimNet content layer for BioForge: the three LLM prompt templates (generation, relationship refine pass, regional digest) the plugin dispatches through SkyrimNet's own prompt engine.\n\nThis layer carries only the SkyrimNet content. The plugin's DLL, and its SMF panel ship in the same archive - install the full mod, not just this layer.",
+  "id": "oldcustard.bioforge",
+  "min_skyrimnet_version": "0.25.0",
+  "mods": [],
+  "nsfw": false,
+  "tagline": "Finds nearby NPCs SkyrimNet has no character bio for and generates one for your review, from the characterisation their own mod already authored.",
+  "tags": [
+    "bios",
+    "characters"
+  ],
+  "title": "BioForge",
+  "type": "bundle",
+  "version": "1.1.0"
+}

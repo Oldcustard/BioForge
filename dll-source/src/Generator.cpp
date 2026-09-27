@@ -4,6 +4,7 @@
 #include "Placement.h"
 
 #include "Config.h"
+#include "ContentLibrary.h"
 #include "Json.h"
 #include "RegionDigest.h"
 #include "ScopeSelector.h"
@@ -120,8 +121,17 @@ namespace BioForge::Generator
         RosterSummaries ResolveRoster(const std::vector<Candidate>& a_roster)
         {
             RosterSummaries out;
+
+            // One library sweep for the whole roster, not one per line: the
+            // index walk is the expensive part, and every line would repeat
+            // it. The committed bios it reads may be minutes old (a
+            // batch-mate committed through the web API), so the index is
+            // built fresh each pass - passes are batch-paced, not per frame.
+            ContentLibrary::Index library;
+            library.Build();
+
             for (const auto& c : a_roster) {
-                out[c.refFormID] = Staging::BioSummary(c);
+                out[c.refFormID] = Staging::BioSummary(c, library);
             }
             return out;
         }

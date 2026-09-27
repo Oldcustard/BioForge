@@ -11,7 +11,7 @@ if(NOT DEFINED VCPKG_TARGET_TRIPLET)
 endif()
 # Bump on every release: this becomes the SKSEPluginInfo version and the first
 # line of BioForge.log, which is how a bug report gets matched to a build.
-project(BioForge VERSION 1.0.0 LANGUAGES CXX)
+project(BioForge VERSION 1.1.0 LANGUAGES CXX)
 
 # CommonLibSSE-NG (alandtse/CommonLibVR branch ng).
 # Normally the submodule at dll-source/lib/commonlibsse-ng. BIOFORGE_COMMONLIB_DIR
@@ -37,13 +37,18 @@ add_commonlibsse_plugin(${PROJECT_NAME}
     SOURCES
         dll-source/src/main.cpp
         dll-source/src/SkyrimNetAPI.cpp
+        dll-source/src/SkyrimNetWeb.cpp
         dll-source/src/Config.cpp
+        dll-source/src/ContentLibrary.cpp
         dll-source/src/ScopeSelector.cpp
         dll-source/src/Generator.cpp
         dll-source/src/Placement.cpp
         dll-source/src/RegionDigest.cpp
         dll-source/src/StagingStore.cpp
         dll-source/src/UI.cpp)
+
+# Commits ride SkyrimNet's loopback web server through WinHTTP.
+target_link_libraries(${PROJECT_NAME} PRIVATE winhttp)
 
 target_include_directories(${PROJECT_NAME} PRIVATE dll-source/include dll-source/src)
 

@@ -1,7 +1,11 @@
-# Bio Forge — SkyrimNet plugin manifest.
+# Bio Forge — SkyrimNet plugin settings schema.
 #
-# SkyrimNet auto-discovers plugin folders under
-# `Data/SKSE/Plugins/SkyrimNet/config/plugins/<plugin>/` and ingests this file.
+# Beta 25 reads this from the plugin's own layer as `settings/BioForge.yaml`;
+# the file name IS the config name (`Plugin_BioForge`,
+# PublicGetPluginConfigValue("BioForge", ...)), so renaming it renames the
+# config. Players' values stay in `config/plugins/BioForge/settings.yaml`,
+# which this layer never ships. The legacy `config/plugins/BioForge/
+# manifest.yaml` location still loads but loses to this file - do not ship both.
 #
 #   `schema.fields:` declares the settings SkyrimNet shows in its in-game UI.
 #   The `path:` values here are exactly what the DLL reads through
@@ -18,7 +22,7 @@
 
 plugin:
   name: BioForge
-  version: "0.1.0"
+  version: "1.1.0"
   description: "Writes SkyrimNet character bios for mod-added NPCs that have none, from the characterisation their own mod already authored — dialogue, factions, outfit, location."
 
 schema:

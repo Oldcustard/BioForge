@@ -11,8 +11,9 @@
 #include "Generator.h"
 #include "RegionDigest.h"
 #include "ScopeSelector.h"
-#include "StagingStore.h"
 #include "SkyrimNetAPI.h"
+#include "SkyrimNetWeb.h"
+#include "StagingStore.h"
 
 namespace BioForge::UI
 {
@@ -67,11 +68,14 @@ namespace BioForge::UI
 
         // A generation is in flight for this reference if a snapshot entry is
         // still Generating - re-queuing the same NPC mid-flight would burn a
-        // second LLM call for nothing.
-        bool IsGenerating(std::uint32_t a_refFormID, const std::vector<Staging::Entry>& a_staged)
+        // second LLM call for nothing. A COMMIT in flight is a different
+        // restraint: the worker thread is reading the bundle, so discarding
+        // under it would pull the file out from under the HTTP call.
+        bool IsBusy(std::uint32_t a_refFormID, const std::vector<Staging::Entry>& a_staged)
         {
             return std::any_of(a_staged.begin(), a_staged.end(), [&](const Staging::Entry& e) {
-                return e.refFormID == a_refFormID && e.state == Staging::State::Generating;
+                return e.refFormID == a_refFormID &&
+                       (e.state == Staging::State::Generating || e.committing);
             });
         }
 
@@ -87,6 +91,17 @@ namespace BioForge::UI
             ImGuiMCP::Text("SkyrimNet API v%d", SN::Version());
             if (!SN::MemorySystemReady()) {
                 ImGuiMCP::TextDisabled("Database not ready - load a save first.");
+            }
+            if (!Web::ServerEnabled()) {
+                // Commits ride SkyrimNet's loopback web server; without it
+                // they fail with a note, so say so before the press, not after.
+                ImGuiMCP::TextColored(kGapColour,
+                                      "SkyrimNet's web server is off - commits will fail.");
+                if (ImGuiMCP::IsItemHovered()) {
+                    ImGuiMCP::SetTooltip(
+                        "Bio Forge writes bios through the dashboard's own API.\n"
+                        "Enable the web server in SkyrimNet's settings to commit.");
+                }
             }
 
             const auto& cfg      = Config::Get();
@@ -269,6 +284,15 @@ namespace BioForge::UI
                 ImGuiMCP::TableNextColumn();
                 if (c.IsGap()) {
                     ImGuiMCP::TextColored(kGapColour, "missing");
+                } else if (c.bioDynamic) {
+                    ImGuiMCP::TextColored(kHaveColour, "dynamic");
+                    if (ImGuiMCP::IsItemHovered()) {
+                        ImGuiMCP::SetTooltip(
+                            "This playthrough already has an evolving engine-written bio\n"
+                            "for this NPC. SkyrimNet renders that copy ahead of any static\n"
+                            "one, so committing a new bio would lose to it - and generating\n"
+                            "over it would discard characterisation the save has built up.");
+                    }
                 } else {
                     ImGuiMCP::TextColored(kHaveColour, "have");
                 }
@@ -316,7 +340,7 @@ namespace BioForge::UI
                 }
 
                 ImGuiMCP::TableNextColumn();
-                if (IsGenerating(c.refFormID, a_staged)) {
+                if (IsBusy(c.refFormID, a_staged)) {
                     ImGuiMCP::TextDisabled("working...");
                 } else if (!c.CanGenerate()) {
                     // The button used to be here and did nothing at all: the
@@ -430,11 +454,17 @@ namespace BioForge::UI
             ImGuiMCP::Separator();
 
             if (sel->state == Staging::State::Staged) {
-                if (ImGuiMCP::Button(sel->committed ? "Commit again" : "Commit")) {
-                    std::string note;
-                    Staging::Commit(*sel, note);
+                if (sel->committing) {
+                    ImGuiMCP::BeginDisabled(true);
+                    ImGuiMCP::Button("Committing...");
+                    ImGuiMCP::EndDisabled();
+                    ImGuiMCP::SameLine();
+                } else {
+                    if (ImGuiMCP::Button(sel->committed ? "Commit again" : "Commit")) {
+                        Staging::Commit(*sel);
+                    }
+                    ImGuiMCP::SameLine();
                 }
-                ImGuiMCP::SameLine();
             }
 
             if (ImGuiMCP::Button("Regenerate")) {
@@ -448,7 +478,16 @@ namespace BioForge::UI
             }
             ImGuiMCP::SameLine();
 
-            const bool drop = ImGuiMCP::Button(sel->committed ? "Dismiss" : "Discard");
+            // Never while a commit for this entry is in flight: the worker
+            // thread is reading the bundle this would delete.
+            bool drop = false;
+            if (sel->committing) {
+                ImGuiMCP::BeginDisabled(true);
+                drop = ImGuiMCP::Button(sel->committed ? "Dismiss" : "Discard");
+                ImGuiMCP::EndDisabled();
+            } else {
+                drop = ImGuiMCP::Button(sel->committed ? "Dismiss" : "Discard");
+            }
             if (ImGuiMCP::IsItemHovered()) {
                 ImGuiMCP::SetTooltip(
                     sel->committed
@@ -508,15 +547,16 @@ namespace BioForge::UI
             } else {
                 ImGuiMCP::Text("Nothing here is uncommitted.");
             }
-            ImGuiMCP::TextDisabled("Bios already committed stay in prompts/characters.");
+            ImGuiMCP::TextDisabled("Bios already committed stay in your SkyrimNet overlay.");
             ImGuiMCP::Separator();
 
             if (ImGuiMCP::Button("Discard them")) {
                 std::size_t dropped = 0;
                 for (const auto& e : a_staged) {
                     // A generation still in flight keeps its entry: the
-                    // completion callback has to find it.
-                    if (e.state == Staging::State::Generating) {
+                    // completion callback has to find it. So does a commit:
+                    // its worker is mid-HTTP with the bundle open.
+                    if (e.state == Staging::State::Generating || e.committing) {
                         continue;
                     }
                     Staging::Discard(e);
@@ -588,8 +628,10 @@ namespace BioForge::UI
                     ImGuiMCP::PushID(static_cast<int>(e.refFormID));
 
                     char label[192]{};
-                    std::snprintf(label, sizeof(label), "%-28s %s%s%s", e.name.c_str(),
-                                  StateLabel(e.state), e.refined ? ", ties revised" : "",
+                    std::snprintf(label, sizeof(label), "%-28s %s%s%s%s", e.name.c_str(),
+                                  StateLabel(e.state),
+                                  e.committing ? ", committing" : "",
+                                  e.refined ? ", ties revised" : "",
                                   e.committed ? ", committed" : "");
 
                     if (ImGuiMCP::Selectable(label, e.refFormID == g_selected)) {
@@ -628,9 +670,12 @@ namespace BioForge::UI
             if (sel && sel->state == Staging::State::Staged) {
                 ImGuiMCP::SameLine();
                 ImGuiMCP::PushID(static_cast<int>(sel->refFormID));
-                if (ImGuiMCP::Button(sel->committed ? "Commit again" : "Commit")) {
-                    std::string note;
-                    Staging::Commit(*sel, note);
+                if (sel->committing) {
+                    ImGuiMCP::BeginDisabled(true);
+                    ImGuiMCP::Button("Committing...");
+                    ImGuiMCP::EndDisabled();
+                } else if (ImGuiMCP::Button(sel->committed ? "Commit again" : "Commit")) {
+                    Staging::Commit(*sel);
                 }
                 ImGuiMCP::PopID();
             }
@@ -638,12 +683,12 @@ namespace BioForge::UI
             // Two words, because the consequences are not the same one.
             // Discarding an uncommitted bio destroys the only copy there is;
             // dismissing a committed one only stops listing finished work, and
-            // prompts/characters is untouched either way. Calling both of them
+            // the overlay is untouched either way. Calling both of them
             // "Discard" - and only offering it inside the reader - is why a
             // committed entry looked like it was stuck in the list for good.
-            // Never offered mid-generation: the completion callback still has
-            // to find its entry.
-            if (sel && sel->state != Staging::State::Generating) {
+            // Never offered mid-generation or mid-commit: the completion
+            // callback / worker thread still has to find its entry and bundle.
+            if (sel && sel->state != Staging::State::Generating && !sel->committing) {
                 ImGuiMCP::SameLine();
                 ImGuiMCP::PushID(static_cast<int>(sel->refFormID));
                 const bool drop = ImGuiMCP::Button(sel->committed ? "Dismiss" : "Discard");
@@ -672,11 +717,11 @@ namespace BioForge::UI
                 [](const Staging::Entry& e) { return e.committed; });
             const auto uncommitted = std::count_if(
                 a_staged.begin(), a_staged.end(), [](const Staging::Entry& e) {
-                    return e.state == Staging::State::Staged && !e.committed;
+                    return e.state == Staging::State::Staged && !e.committed && !e.committing;
                 });
             const auto removable = std::count_if(
                 a_staged.begin(), a_staged.end(), [](const Staging::Entry& e) {
-                    return e.state != Staging::State::Generating;
+                    return e.state != Staging::State::Generating && !e.committing;
                 });
 
             if (uncommitted > 0) {
@@ -691,18 +736,20 @@ namespace BioForge::UI
                         "re-committed.");
                 }
                 if (commitAll) {
-                    std::size_t done = 0;
+                    // Async commits: this queues one HTTP write per entry and
+                    // returns immediately; the entries flip to committed (or
+                    // carry a failure note) as their workers land.
+                    std::size_t queued = 0;
                     for (const auto& e : a_staged) {
-                        if (e.state != Staging::State::Staged || e.committed) {
+                        if (e.state != Staging::State::Staged || e.committed || e.committing) {
                             continue;
                         }
-                        std::string note;
-                        if (Staging::Commit(e, note)) {
-                            ++done;
+                        if (Staging::Commit(e)) {
+                            ++queued;
                         }
                     }
-                    logs::info("commit: committed {} of {} staged bio(s) in one press"sv,
-                               done, static_cast<std::size_t>(uncommitted));
+                    logs::info("commit: queued {} of {} staged bio(s) in one press"sv,
+                               queued, static_cast<std::size_t>(uncommitted));
                 }
                 ImGuiMCP::SameLine();
             }
@@ -792,7 +839,7 @@ namespace BioForge::UI
                 // Walking to another cell also tidies the review list, but
                 // COMMITTED entries only - exactly what the Clear committed
                 // button does, just without having to press it. Those bios are
-                // already written to prompts/characters/ and discarding the
+                // already written into the content library and discarding the
                 // staging bundle leaves them alone, so nothing can be lost.
                 //
                 // Uncommitted bios deliberately survive. They are the only
@@ -843,7 +890,8 @@ namespace BioForge::UI
 
             if (!SN::CanGenerate()) {
                 ImGuiMCP::TextColored(kGapColour,
-                                      "Generation unavailable: SkyrimNet API v%d is older than v8.",
+                                      "Generation unavailable: SkyrimNet API v%d is older than"
+                                      " v10 (Beta 25).",
                                       SN::Version());
             }
 

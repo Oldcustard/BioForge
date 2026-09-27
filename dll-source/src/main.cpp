@@ -7,10 +7,14 @@
 
 namespace
 {
-    // SkyrimNet's PublicSendCustomPromptToLLM arrived in API v8. Everything the
-    // scan touches is v3+, but there is no point loading against a SkyrimNet we
-    // could never generate with, so warn loudly and stay read-only.
-    constexpr int kMinUsefulAPIVersion = 8;
+    // SkyrimNet Beta 25 = Public API v10, and Beta 25 is what Bio Forge now
+    // needs: the content library (bios across layers, commits through the
+    // dashboard's HTTP API) and the prompt templates shipped as an external
+    // layer simply do not exist in a Beta 24 install. v8 gave us
+    // PublicSendCustomPromptToLLM, but against anything older than v10 the
+    // prompts would not resolve and commits would go nowhere - so warn loudly
+    // and stay read-only rather than half-work.
+    constexpr int kMinUsefulAPIVersion = 10;
 
     // SkyrimNet's own header specifies kDataLoaded for FindFunctions(): registration
     // works from there, and data queries stay safe (they return empty) until a save

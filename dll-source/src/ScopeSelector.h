@@ -20,7 +20,17 @@ namespace BioForge
         // SkyrimNet has assigned one; where it has not, this is the derived
         // fallback, so the UI can always state the outcome instead of "(none)".
         std::string   wouldWriteAs;
+        // True when ANY content layer provides this stem - a plugin pack, the
+        // shipped base, the player's overlay, or this playthrough's per-save
+        // files. Detection goes through ContentLibrary::Index, not a stat on
+        // one directory: Beta 25 spreads bios across layers.
         bool          bioFileExists{};
+        // The winning bio is the engine's own evolving per-save draft
+        // (.dynamic.prompt). Not a gap - regenerating over it would discard
+        // characterisation this playthrough built up, and SkyrimNet renders
+        // the dynamic copy ahead of any static one, so a fresh commit would
+        // lose to it anyway. Surfaced as its own row state.
+        bool          bioDynamic{};
         // SkyrimNet resolves a UUID for this actor. When it does not, the
         // actor is invisible to every part of its API: no template name, and
         // no way to dispatch a generation - BuildContext bails and the job is

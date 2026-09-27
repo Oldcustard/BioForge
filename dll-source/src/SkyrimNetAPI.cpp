@@ -25,7 +25,8 @@ namespace BioForge::SN
 
     bool CanGenerate()
     {
-        return g_ready && PublicSendCustomPromptToLLM != nullptr;
+        // v10 is SkyrimNet Beta 25 (the content library). See SkyrimNetAPI.h.
+        return g_ready && g_version >= 10 && PublicSendCustomPromptToLLM != nullptr;
     }
 
     std::string BioTemplateName(std::uint32_t a_refFormID)
@@ -39,6 +40,14 @@ namespace BioForge::SN
     bool MemorySystemReady()
     {
         return g_ready && PublicIsMemorySystemReady && PublicIsMemorySystemReady();
+    }
+
+    std::string SaveUniqueID()
+    {
+        if (!g_ready || !PublicGetSaveUniqueID) {
+            return {};
+        }
+        return PublicGetSaveUniqueID();
     }
 
     std::uint64_t FormIDToUUID(std::uint32_t a_formID)

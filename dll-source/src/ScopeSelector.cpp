@@ -2,6 +2,7 @@
 
 #include "ScopeSelector.h"
 #include "Config.h"
+#include "ContentLibrary.h"
 #include "SkyrimNetAPI.h"
 #include "StagingStore.h"
 
@@ -9,26 +10,6 @@ namespace BioForge
 {
     namespace
     {
-        // Bios live under the game's Data tree; MO2's VFS resolves this to
-        // whichever mod (usually overwrite) currently wins the file.
-        constexpr auto kCharacterDir = "Data/SKSE/Plugins/SkyrimNet/prompts/characters"sv;
-
-        bool BioFileExists(std::string_view a_template)
-        {
-            if (a_template.empty()) {
-                return false;
-            }
-
-            std::string file{ a_template };
-            if (!file.ends_with(".prompt")) {
-                file += ".prompt";
-            }
-
-            std::error_code ec;   // non-throwing: a missing Data dir is not fatal
-            const auto      path = std::filesystem::path{ kCharacterDir } / file;
-            return std::filesystem::exists(path, ec);
-        }
-
         std::string SourcePluginOf(const RE::TESForm* a_form)
         {
             if (!a_form) {
@@ -61,6 +42,15 @@ namespace BioForge
         const bool interior = playerCell && playerCell->IsInteriorCell();
 
         std::size_t absent = 0;
+
+        // One content-library sweep per scan, not per row: every layer
+        // SkyrimNet resolves through (hub plugins, external layers, the
+        // player's overlay, this playthrough's per-save files) is walked
+        // once and each candidate then consults the index. Beta 24 stat'ed
+        // a single prompts/characters directory; Beta 25 spreads those
+        // files across layers.
+        ContentLibrary::Index library;
+        library.Build();
 
         auto perRef = [&](RE::TESObjectREFR* a_ref) -> RE::BSContainer::ForEachResult {
             if (!a_ref) {
@@ -122,11 +112,22 @@ namespace BioForge
             c.posZ         = pos.z;
             c.distance     = player->GetPosition().GetDistance(pos);
             c.bioTemplate  = SN::BioTemplateName(c.refFormID);
-            c.bioFileExists = BioFileExists(c.bioTemplate);
             c.trackedBySkyrimNet = SN::FormIDToUUID(c.refFormID) != 0;
             // Resolved once here rather than per frame: the panel renders this
             // for every row, and Render() must stay cheap.
             c.wouldWriteAs = Staging::BioFileName(c);
+
+            // Detection asks the same question SkyrimNet's renderer asks:
+            // does any layer provide a bio under this template stem. A
+            // per-save DYNAMIC bio counts as covered and is flagged as such -
+            // generating over one would throw away characterisation this
+            // playthrough has evolved (and, since SkyrimNet renders the
+            // dynamic copy first, the new static bio would lose to it
+            // anyway).
+            if (const auto* bio = library.Find(c.wouldWriteAs)) {
+                c.bioFileExists = true;
+                c.bioDynamic    = bio->dynamic;
+            }
 
             out.push_back(std::move(c));
             return RE::BSContainer::ForEachResult::kContinue;
@@ -161,7 +162,7 @@ namespace BioForge
 
         for (const auto& c : a_candidates) {
             logs::info("  [{}] {:<28} ref={:08X} base={:08X} {:<24} race={:<18} dist={:>6.0f} bio='{}'"sv,
-                       c.IsGap() ? "GAP " : "have",
+                       c.IsGap() ? "GAP " : c.bioDynamic ? "dyn " : "have",
                        c.name, c.refFormID, c.baseFormID, c.sourcePlugin, c.race, c.distance,
                        c.bioTemplate);
         }

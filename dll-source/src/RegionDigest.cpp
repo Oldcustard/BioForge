@@ -3,6 +3,7 @@
 #include "RegionDigest.h"
 
 #include "Config.h"
+#include "ContentLibrary.h"
 #include "Json.h"
 #include "SkyrimNetAPI.h"
 #include "StagingStore.h"
@@ -126,9 +127,9 @@ namespace BioForge::RegionDigest
 
         std::filesystem::path CacheDir()
         {
-            // Beside the DLL, NOT under prompts/: SkyrimNet scans that tree for
-            // templates, and these are data files.
-            return Staging::PromptsDir().parent_path().parent_path() / "BioForge" / "regions";
+            // Beside the DLL, NOT inside SkyrimNet's content tree: these are
+            // data files, and Beta 25's layer scanner would reject them.
+            return ContentLibrary::SkyrimNetDir().parent_path() / "BioForge" / "regions";
         }
 
         std::string Sanitise(std::string_view a_name)
@@ -351,12 +352,14 @@ namespace BioForge::RegionDigest
         // above.
         std::string GatherCandidates(const Region& a_region, std::size_t a_max)
         {
-            const auto      dir = Staging::PromptsDir() / "characters";
-            std::error_code ec;
-            if (!std::filesystem::is_directory(dir, ec)) {
-                logs::warn("digest: no bio corpus at {}"sv, dir.string());
-                return {};
-            }
+            // The corpus is the content library's winning set: one file per
+            // character across every layer (hub packs, external layers, the
+            // player's overlay, per-save files), honouring disabled plugins.
+            // Beta 24 read one directory; Beta 25 spreads the same bios
+            // across layer folders, and a duplicate (base copy + hub pack)
+            // must count once or the co-citation ranking double-weights it.
+            ContentLibrary::Index library;
+            library.Build();
 
             const auto started = std::chrono::steady_clock::now();
 
@@ -364,16 +367,12 @@ namespace BioForge::RegionDigest
             std::size_t            examined = 0;
             std::size_t            holdOnly = 0;
 
-            for (const auto& file : std::filesystem::directory_iterator{ dir, ec }) {
-                if (!file.is_regular_file() || file.path().extension() != ".prompt") {
-                    continue;   // also skips the .prompt.backup.<time> files
-                }
-                ++examined;
-
-                const auto text = ReadFile(file.path());
+            for (const auto& [stem, bio] : library.All()) {
+                const auto text = ContentLibrary::ReadBioFile(bio.path);
                 if (text.empty()) {
                     continue;
                 }
+                ++examined;
 
                 const auto regionHits = CountOccurrences(text, a_region.name);
                 const auto holdHits   = CountOccurrences(text, a_region.hold);
@@ -442,7 +441,7 @@ namespace BioForge::RegionDigest
 
                 ScoredBio bio;
                 bio.score = score;
-                bio.name  = NameFromStem(file.path().stem().string());
+                bio.name  = NameFromStem(stem);
                 bio.ties  = Staging::ExtractBlock(text, "relationships"sv);
                 bio.line  = "- " + bio.name + ": " + FirstSentence(summary, 240) + "\n";
                 scored.push_back(std::move(bio));
