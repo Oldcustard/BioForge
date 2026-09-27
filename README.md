@@ -12,6 +12,24 @@ prebuilt bio pack can cover *your* mod list. BioForge fills the gaps on your mac
 - 👀 **Nothing is written without your say-so.** Every bio is staged for review first.
 - ⚡ **Live immediately.** A committed bio takes effect without a restart.
 
+## 🤔 Why not SkyrimNet's own bio generator?
+
+SkyrimNet's dashboard can already generate a bio, one character at a time: you pick an
+NPC, generate, save. That's fine for a follower or two. It doesn't scale to a load order
+with thousands of uncovered NPCs. **BioForge is the bulk tool.**
+
+- 🗺️ **It finds the gaps for you.** Stand somewhere and scan. You don't have to know
+  which NPCs are missing a bio or look them up one by one.
+- 📦 **Whole places at once.** Generate an inn, a street or a village in one press, with
+  several requests running at a time.
+- 🤝 **Bios that know each other.** A batch is written together: each NPC sees who else
+  lives there, relationships are re-checked once the whole batch exists, and a
+  per-settlement digest says who runs the town. One-at-a-time bios can't know about
+  neighbours that don't have bios yet.
+- 📋 **One review queue.** Read, commit or discard a whole batch from one list.
+- 🧩 **It works alongside SkyrimNet.** It uses the same LLM setup and saves into the same
+  layer as your dashboard edits, and it leaves NPCs with a dynamic bio alone.
+
 ## 🧭 How it works
 
 Open SKSE Menu Framework's panel (SMF's own toggle key, `ToggleKey` in
