@@ -157,7 +157,7 @@ namespace BioForge::Web
             // generous receive window is for the content rescan a write
             // kicks off, which on a several-thousand-file library took
             // seconds even in Beta 24.
-            void* session = WinHttpOpen(L"BioForge/1.1", WINHTTP_ACCESS_TYPE_NO_PROXY,
+            void* session = WinHttpOpen(L"BioForge/1.0", WINHTTP_ACCESS_TYPE_NO_PROXY,
                                         WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
             if (!session) {
                 out.error = "WinHttpOpen failed";
