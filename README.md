@@ -309,3 +309,11 @@ edit them in the layer and restart the game (SkyrimNet reads the layer at start-
 Their headers document the renderer quirks that govern any edit to them — read those
 before changing a template. Bump the layer's `manifest.json` version whenever the files
 change.
+
+## License
+
+Bio Forge is licensed under the [GNU General Public License v3.0](LICENSE).
+
+The vendored headers under `dll-source/include/` are not covered by it and keep their
+upstream terms: `SkyrimNet_PublicAPI.h` and `PublicAPIMemoryQuery.h` come from the
+SkyrimNet developer kit, `SKSEMenuFramework.h` from SKSE Menu Framework.
