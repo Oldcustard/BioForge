@@ -264,7 +264,7 @@ namespace BioForge::ContentLibrary
             }
         }
 
-        // The player's own layer: where dashboard edits - and Bio Forge
+        // The player's own layer: where dashboard edits - and BioForge
         // commits - land, at overlay/prompts/characters directly.
         SweepLayer(root / kOverlayRoot, Source::Overlay, false);
 

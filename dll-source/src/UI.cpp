@@ -83,7 +83,7 @@ namespace BioForge::UI
         {
             if (!SN::Available()) {
                 ImGuiMCP::TextColored(kGapColour, "SkyrimNet not found.");
-                ImGuiMCP::TextWrapped("Bio Forge reads NPC data and generates bios through SkyrimNet. "
+                ImGuiMCP::TextWrapped("BioForge reads NPC data and generates bios through SkyrimNet. "
                                       "Install SkyrimNet and restart the game.");
                 return;
             }
@@ -99,7 +99,7 @@ namespace BioForge::UI
                                       "SkyrimNet's web server is off - commits will fail.");
                 if (ImGuiMCP::IsItemHovered()) {
                     ImGuiMCP::SetTooltip(
-                        "Bio Forge writes bios through the dashboard's own API.\n"
+                        "BioForge writes bios through the dashboard's own API.\n"
                         "Enable the web server in SkyrimNet's settings to commit.");
                 }
             }
@@ -132,7 +132,7 @@ namespace BioForge::UI
         // as plain text, but nobody should have to go and find the file.
         void DrawDigestReader(const std::string& a_region, const std::string& a_digest)
         {
-            constexpr auto kDigestTitle = "Bio Forge - regional digest";
+            constexpr auto kDigestTitle = "BioForge - regional digest";
 
             if (g_openDigestReader) {
                 ImGuiMCP::OpenPopup(kDigestTitle);
@@ -397,7 +397,7 @@ namespace BioForge::UI
         // closes back to exactly where you were.
         void DrawReader(const std::vector<Staging::Entry>& a_staged)
         {
-            constexpr auto kReaderTitle = "Bio Forge - review";
+            constexpr auto kReaderTitle = "BioForge - review";
 
             if (g_openReader) {
                 ImGuiMCP::OpenPopup(kReaderTitle);
@@ -530,7 +530,7 @@ namespace BioForge::UI
         void DrawDiscardAllConfirm(const std::vector<Staging::Entry>& a_staged,
                                    std::ptrdiff_t                     a_uncommitted)
         {
-            constexpr auto kConfirmTitle = "Bio Forge - discard all?";
+            constexpr auto kConfirmTitle = "BioForge - discard all?";
 
             if (g_openDiscardAll) {
                 ImGuiMCP::OpenPopup(kConfirmTitle);
@@ -941,11 +941,11 @@ namespace BioForge::UI
     void Register()
     {
         if (!SKSEMenuFramework::IsInstalled()) {
-            logs::warn("SKSE Menu Framework not installed - Bio Forge has no UI"sv);
+            logs::warn("SKSE Menu Framework not installed - BioForge has no UI"sv);
             return;
         }
 
-        SKSEMenuFramework::SetSection("Bio Forge");
+        SKSEMenuFramework::SetSection("BioForge");
         SKSEMenuFramework::AddSectionItem("Scan", Render);
         logs::info("registered SMF page (open the mod control panel to use it)"sv);
     }

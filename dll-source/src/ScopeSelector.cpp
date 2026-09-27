@@ -157,7 +157,7 @@ namespace BioForge
         const auto gaps = std::count_if(a_candidates.begin(), a_candidates.end(),
                                         [](const Candidate& c) { return c.IsGap(); });
 
-        logs::info("--- Bio Forge scan: {} actor(s), {} without a bio ---"sv,
+        logs::info("--- BioForge scan: {} actor(s), {} without a bio ---"sv,
                    a_candidates.size(), gaps);
 
         for (const auto& c : a_candidates) {

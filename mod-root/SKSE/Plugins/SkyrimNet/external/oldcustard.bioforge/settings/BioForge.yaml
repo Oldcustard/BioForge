@@ -1,4 +1,4 @@
-# Bio Forge — SkyrimNet plugin settings schema.
+# BioForge — SkyrimNet plugin settings schema.
 #
 # Beta 25 reads this from the plugin's own layer as `settings/BioForge.yaml`;
 # the file name IS the config name (`Plugin_BioForge`,
@@ -12,13 +12,13 @@
 #   PublicGetPluginConfigValue("BioForge", <path>, <default>) — keep them in
 #   sync with Config.cpp.
 #
-# NOTE: deliberately no `variants:` block. Bio Forge dispatches on SkyrimNet's
+# NOTE: deliberately no `variants:` block. BioForge dispatches on SkyrimNet's
 # own `CharacterProfileGeneration` variant — the one already configured for
 # writing character profiles — so the user picks a model in one place instead of
 # configuring a second, near-identical profile for us. It also inherits that
 # variant's tuning (full model, 10k max_tokens, temperature 0.7); a plugin's own
 # fresh variant inherits the dialogue defaults instead, which are a flash model
-# on a 4k cap. Bio Forge never handles an API key either way.
+# on a 4k cap. BioForge never handles an API key either way.
 
 plugin:
   name: BioForge

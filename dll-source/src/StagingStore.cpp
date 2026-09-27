@@ -246,7 +246,7 @@ namespace BioForge::Staging
         }
 
         // The bundle is the audit trail: what the model was asked (harvest),
-        // what it answered (raw), and what Bio Forge would commit (bio).
+        // what it answered (raw), and what BioForge would commit (bio).
         WriteFile(bundle / "harvest.json", a_contextJson);
         WriteFile(bundle / "response.raw.txt", a_rawResponse);
 

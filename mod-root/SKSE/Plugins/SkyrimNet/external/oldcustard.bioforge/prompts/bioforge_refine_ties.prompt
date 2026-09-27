@@ -1,6 +1,6 @@
 [ system ]
 {# ===========================================================================
-   Bio Forge - pass two: rewrite one NPC's relationships block.
+   BioForge - pass two: rewrite one NPC's relationships block.
 
    Run after a batch finishes, for bios whose ties were composed while some
    neighbours had no profile yet. Those bios could only say that the unwritten

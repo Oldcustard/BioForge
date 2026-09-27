@@ -36,7 +36,7 @@ namespace BioForge::ContentLibrary
         bool operator()(std::string_view a_lhs, std::string_view a_rhs) const;
     };
 
-    // One pass over the content library. Bio Forge used to stat one directory
+    // One pass over the content library. BioForge used to stat one directory
     // (prompts/characters) - Beta 25 spreads the same files across layer
     // folders, so every "does this NPC have a bio" question now goes through
     // an Index built once per scan / harvest / roster build, never per row.

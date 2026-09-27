@@ -33,7 +33,7 @@ if(NOT COMMAND add_commonlibsse_plugin)
 endif()
 
 add_commonlibsse_plugin(${PROJECT_NAME}
-    AUTHOR "Bio Forge"
+    AUTHOR "BioForge"
     SOURCES
         dll-source/src/main.cpp
         dll-source/src/SkyrimNetAPI.cpp

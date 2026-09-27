@@ -1,11 +1,11 @@
-# 📜 Bio Forge
+# 📜 BioForge
 
 Writes SkyrimNet character bios for mod-added NPCs that don't have one, built from what
 their own mod already gives them: dialogue, factions, outfit, class and location.
 
 Without a bio, an NPC falls back to SkyrimNet's generic template and speaks with no
 personality of their own. Heavily modded load orders have thousands of these, and no
-prebuilt bio pack can cover *your* mod list. Bio Forge fills the gaps on your machine.
+prebuilt bio pack can cover *your* mod list. BioForge fills the gaps on your machine.
 
 - 🔑 **No API key.** It uses the LLM you already set up in SkyrimNet, through SkyrimNet's
   own `CharacterProfileGeneration` profile, so there's no second model to configure.
@@ -15,7 +15,7 @@ prebuilt bio pack can cover *your* mod list. Bio Forge fills the gaps on your ma
 ## 🧭 How it works
 
 Open SKSE Menu Framework's panel (SMF's own toggle key, `ToggleKey` in
-`SKSEMenuFramework.ini`) and go to **Bio Forge / Scan**.
+`SKSEMenuFramework.ini`) and go to **BioForge / Scan**.
 
 1. 🔍 **Scan** — lists nearby NPCs and flags the ones with no bio.
    - **Indoors:** the whole interior you're in.
@@ -46,7 +46,7 @@ Open SKSE Menu Framework's panel (SMF's own toggle key, `ToggleKey` in
 ## 🏘️ Regional digest
 
 Most mod NPCs have almost nothing tying them to the wider world, so their relationships
-come out as "the customers" and "the locals". To fix that, Bio Forge writes a short
+come out as "the customers" and "the locals". To fix that, BioForge writes a short
 reference sheet per settlement (who holds power, who runs the trade) and hands it to
 every bio generated there.
 
@@ -64,7 +64,7 @@ every bio generated there.
   with its web server enabled, since commits go through it
 - SKSE and Address Library for SKSE Plugins
 - [SKSE Menu Framework](https://www.nexusmods.com/skyrimspecialedition/mods/120352) v3,
-  which provides the whole UI (Bio Forge adds no hotkey of its own)
+  which provides the whole UI (BioForge adds no hotkey of its own)
 
 > ⬆️ **Upgrading from Beta 24?** Old committed bios in
 > `SKSE/Plugins/SkyrimNet/prompts/characters/` are no longer read. Use SkyrimNet's
@@ -97,7 +97,7 @@ with no restart.
 - 👤 `scan.uniqueOnly` skips generic leveled NPCs (bandits, guards), which SkyrimNet's
   generic template already handles well.
 - 🏷️ The **Template** column shows the file name a commit would write. A dimmed name
-  with `*` is one Bio Forge derived because SkyrimNet hasn't assigned one.
+  with `*` is one BioForge derived because SkyrimNet hasn't assigned one.
 
 ## ⚠️ Known issues
 
@@ -111,7 +111,7 @@ with no restart.
 - 📏 Raising the radius past ~20,000 does nothing.
 - 🔜 Planned: a sweep mode that gathers several scans into one batch.
 
-**A wrong bio already in your load order gets trusted and spreads.** Bio Forge treats any
+**A wrong bio already in your load order gets trusted and spreads.** BioForge treats any
 existing bio as correct, and uses it to tell neighbours who lives nearby.
 
 - 🧪 Real case: Riften's trader **Brand-Shei** was served by a bulk-generated bio for an

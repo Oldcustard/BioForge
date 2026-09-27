@@ -29,7 +29,7 @@ namespace BioForge::Generator
         constexpr auto kRefinePrompt = "bioforge_refine_ties"sv;
         constexpr auto kRefineBlock  = "relationships"sv;
 
-        // SkyrimNet's own bio-writing variant, not one of ours. Bio Forge does
+        // SkyrimNet's own bio-writing variant, not one of ours. BioForge does
         // exactly the job this variant is already configured for, so it should
         // inherit whatever model the user picked for profile generation rather
         // than making them configure a second one. It is also tuned for the

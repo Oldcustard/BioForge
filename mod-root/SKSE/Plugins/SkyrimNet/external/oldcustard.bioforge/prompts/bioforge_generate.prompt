@@ -1,6 +1,6 @@
 [ system ]
 {# ===========================================================================
-   Bio Forge - character bio generation.
+   BioForge - character bio generation.
 
    Rendered by BioForge.dll through SkyrimNet's PublicSendCustomPromptToLLM.
    Context injected by the DLL:

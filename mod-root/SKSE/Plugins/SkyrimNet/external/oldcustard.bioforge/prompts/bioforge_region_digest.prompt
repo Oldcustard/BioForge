@@ -1,6 +1,6 @@
 [ system ]
 {# ===========================================================================
-   Bio Forge - regional digest.
+   BioForge - regional digest.
 
    Built ONCE per settlement and reused for every bio generated there. Context
    from the DLL:

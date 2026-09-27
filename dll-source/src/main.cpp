@@ -7,7 +7,7 @@
 
 namespace
 {
-    // SkyrimNet Beta 25 = Public API v10, and Beta 25 is what Bio Forge now
+    // SkyrimNet Beta 25 = Public API v10, and Beta 25 is what BioForge now
     // needs: the content library (bios across layers, commits through the
     // dashboard's HTTP API) and the prompt templates shipped as an external
     // layer simply do not exist in a Beta 24 install. v8 gave us
@@ -27,7 +27,7 @@ namespace
         }
 
         if (!BioForge::SN::Init()) {
-            logs::error("SkyrimNet.dll not found - Bio Forge needs SkyrimNet installed"sv);
+            logs::error("SkyrimNet.dll not found - BioForge needs SkyrimNet installed"sv);
             return;
         }
 
@@ -50,11 +50,11 @@ namespace
 extern "C" __declspec(dllexport) bool SKSEAPI SKSEPlugin_Load(const SKSE::LoadInterface* a_skse)
 {
     SKSE::Init(a_skse);
-    logs::info("Bio Forge loaded"sv);
+    logs::info("BioForge loaded"sv);
 
     const auto messaging = SKSE::GetMessagingInterface();
     if (!messaging || !messaging->RegisterListener(OnMessage)) {
-        SKSE::stl::report_and_fail("Bio Forge: failed to register the SKSE message listener"sv);
+        SKSE::stl::report_and_fail("BioForge: failed to register the SKSE message listener"sv);
     }
 
     // SMF ships a preload marker, so its DLL is already in the process by the time
