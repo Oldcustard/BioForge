@@ -17,8 +17,8 @@ second model to set up.
 
 ## How it works
 
-Open SKSE Menu Framework's mod control panel (default **`x`**, set in
-`SKSEMenuFramework.ini`) and go to **Bio Forge / Scan**.
+Open SKSE Menu Framework's mod control panel (with SMF's own toggle key — `ToggleKey`
+in `SKSEMenuFramework.ini`) and go to **Bio Forge / Scan**.
 
 1. **Scan.** Finds nearby NPCs and reports which ones SkyrimNet has no bio for. What
    "nearby" means follows where you are standing: **indoors** it is the whole room you are
