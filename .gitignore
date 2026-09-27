@@ -9,3 +9,7 @@ __pycache__/
 
 # Release archives are build output, not source.
 *.zip
+
+# Developer notes: kept locally, not published.
+CLAUDE.md
+dev-notes/

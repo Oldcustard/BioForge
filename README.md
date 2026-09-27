@@ -136,7 +136,6 @@ cmake --build build --config Release
 - ✏️ Prompts live in `mod-root/.../external/oldcustard.bioforge/prompts/` and can be
   tuned without a rebuild. Read their header comments first, and bump the layer's
   `manifest.json` version when they change.
-- 📚 `dev-notes/` explains the non-obvious rules. Start from `CLAUDE.md`.
 
 ```
 dll-source/src/
