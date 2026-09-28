@@ -78,8 +78,7 @@ every bio generated there.
 
 ## 📦 Requirements
 
-- [SkyrimNet](https://goncalo22.github.io/SkyrimNet-GamePlugin/) **Beta 25+** (API v10+),
-  with its web server enabled, since commits go through it
+- [SkyrimNet](https://goncalo22.github.io/SkyrimNet-GamePlugin/) **Beta 25+** (API v10+)
 - SKSE and Address Library for SKSE Plugins
 - [SKSE Menu Framework](https://www.nexusmods.com/skyrimspecialedition/mods/120352) v3,
   which provides the whole UI (BioForge adds no hotkey of its own)

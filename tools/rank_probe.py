@@ -8,18 +8,21 @@ instead of rebuild / stage / launch / generate.
 This mirrors RegionDigest::GatherCandidates. Keep the weights below in step
 with the constants in RegionDigest.cpp; this file is where they get decided.
 
-  python rank_probe.py Riften "The Rift"
+  python rank_probe.py Riften "The Rift" --corpus <folder of bio .prompt files>
   python rank_probe.py Ivarstead "The Rift" --top 40
   python rank_probe.py Riften "The Rift" --explain Wilhelm
+
+(the last two assume BIOFORGE_CORPUS is set to that folder)
 """
 import argparse
 import os
 import re
 import sys
 
-CORPUS = os.environ.get(
-    "BIOFORGE_CORPUS",
-    r"F:\Modding\JOJ\overwrite\skse\plugins\SkyrimNet\prompts\characters")
+# A folder of bio .prompt files, e.g. a layer's prompts/characters/ under
+# <Data>/SKSE/Plugins/SkyrimNet/ (overlay/, library/<id>/ or saves/<id>/).
+# No default: it depends on where your install keeps them.
+CORPUS = os.environ.get("BIOFORGE_CORPUS")
 
 # ---- weights (mirror RegionDigest.cpp) ------------------------------------
 IN_SUMMARY, IN_BODY = 1000, 100
@@ -148,8 +151,11 @@ def main():
     ap.add_argument("--top", type=int, default=120)
     ap.add_argument("--show", type=int, default=25)
     ap.add_argument("--explain", default=None)
-    ap.add_argument("--corpus", default=CORPUS)
+    ap.add_argument("--corpus", default=CORPUS,
+                    help="folder of bio .prompt files (or set BIOFORGE_CORPUS)")
     a = ap.parse_args()
+    if not a.corpus:
+        ap.error("no corpus: pass --corpus <folder> or set BIOFORGE_CORPUS")
 
     docs = load(a.corpus)
     print("corpus: %d bios  |  region=%r hold=%r  cap=%d\n"

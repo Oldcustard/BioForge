@@ -1,6 +1,6 @@
 {
   "author": "oldcustard",
-  "description": "The SkyrimNet content layer for BioForge: the three LLM prompt templates (generation, relationship refine pass, regional digest) the plugin dispatches through SkyrimNet's own prompt engine.\n\nThis layer carries only the SkyrimNet content. The plugin's DLL, and its SMF panel ship in the same archive - install the full mod, not just this layer.",
+  "description": "The SkyrimNet content layer for BioForge: the three LLM prompt templates (generation, relationship refine pass, regional digest) the plugin dispatches through SkyrimNet's own prompt engine, plus its settings page.\n\nThis layer carries only the SkyrimNet content. The plugin's DLL and its SMF panel ship in the same archive - install the full mod, not just this layer.",
   "id": "oldcustard.bioforge",
   "min_skyrimnet_version": "0.25.0",
   "mods": [],
