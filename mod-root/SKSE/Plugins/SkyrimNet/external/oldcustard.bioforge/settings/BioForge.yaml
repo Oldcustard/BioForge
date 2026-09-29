@@ -22,7 +22,7 @@
 
 plugin:
   name: BioForge
-  version: "1.0.0"
+  version: "1.0.1"
   description: "Writes SkyrimNet character bios for mod-added NPCs that have none, from the characterisation their own mod already authored — dialogue, factions, outfit, location."
 
 schema:

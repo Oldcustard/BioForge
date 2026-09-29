@@ -52,6 +52,11 @@ target_link_libraries(${PROJECT_NAME} PRIVATE winhttp)
 
 target_include_directories(${PROJECT_NAME} PRIVATE dll-source/include dll-source/src)
 
+# One version, from project() above: the web client's user agent reads it
+# rather than carrying its own copy. The content layer's manifest.json and
+# settings/BioForge.yaml still hold theirs by hand - bump them with this.
+target_compile_definitions(${PROJECT_NAME} PRIVATE BIOFORGE_VERSION="${PROJECT_VERSION}")
+
 target_compile_features(${PROJECT_NAME} PRIVATE cxx_std_23)
 target_compile_options(${PROJECT_NAME} PRIVATE /Zc:preprocessor)   # CommonLib headers require it
 target_precompile_headers(${PROJECT_NAME} PRIVATE dll-source/src/pch.h)
