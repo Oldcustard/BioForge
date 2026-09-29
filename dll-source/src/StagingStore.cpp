@@ -74,7 +74,13 @@ namespace BioForge::Staging
             if (stem.ends_with(".prompt")) {
                 stem.resize(stem.size() - 7);
             }
-            return StagingRoot() / stem;
+            return StagingRoot() / ContentLibrary::PathFromUtf8(stem);
+        }
+
+        // Entry::stagingDir is carried as UTF-8, like every stem it is built from.
+        std::filesystem::path StagingDirOf(std::string_view a_stagingDir)
+        {
+            return ContentLibrary::PathFromUtf8(a_stagingDir);
         }
 
         Entry* FindLocked(std::uint32_t a_refFormID)
@@ -109,12 +115,17 @@ namespace BioForge::Staging
             return resolved;
         }
 
+        // Non-ASCII bytes are kept when the name is valid UTF-8, so a Cyrillic
+        // name keeps its letters instead of collapsing to "npc". A name in a
+        // legacy codepage cannot be carried safely and is stripped as before.
+        const bool     keepHigh = ContentLibrary::IsValidUtf8(a_candidate.name);
         std::string derived;
         for (const char ch : a_candidate.name) {
             const auto c = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
             if (c == ' ') {
                 derived += '_';
-            } else if (std::isalnum(static_cast<unsigned char>(c)) || c == '_' || c == '-') {
+            } else if (std::isalnum(static_cast<unsigned char>(c)) || c == '_' || c == '-' ||
+                       (keepHigh && static_cast<unsigned char>(c) >= 0x80)) {
                 derived += c;
             }
         }
@@ -242,7 +253,7 @@ namespace BioForge::Staging
                 e->state = State::Staged;
                 e->note.clear();
             }
-            e->stagingDir = bundle.string();
+            e->stagingDir = ContentLibrary::Utf8Of(bundle);
         }
 
         // The bundle is the audit trail: what the model was asked (harvest),
@@ -258,7 +269,7 @@ namespace BioForge::Staging
         if (Entry* e = FindLocked(a_refFormID)) {
             logs::info("generate: {} {} (bundle: {})"sv, e->name,
                        e->state == State::Staged ? "staged"sv : "failed parse"sv,
-                       bundle.string());
+                       ContentLibrary::Utf8Of(bundle));
         }
     }
 
@@ -397,7 +408,9 @@ namespace BioForge::Staging
         // Staging first: a batch-mate written minutes ago has not been
         // committed yet, but it is the truest thing available about them.
         // Then the content library's winning copy, wherever it lives.
-        std::vector<std::filesystem::path> candidates{ StagingRoot() / file / "bio.prompt" };
+        std::vector<std::filesystem::path> candidates{ StagingRoot() /
+                                                       ContentLibrary::PathFromUtf8(file) /
+                                                       "bio.prompt" };
         if (const auto* winning = a_committed.Find(file)) {
             candidates.push_back(winning->path);
         }
@@ -457,7 +470,7 @@ namespace BioForge::Staging
         if (a_entry.stagingDir.empty()) {
             return {};
         }
-        return ReadWholeFile(std::filesystem::path{ a_entry.stagingDir } / "bio.prompt");
+        return ReadWholeFile(StagingDirOf(a_entry.stagingDir) / "bio.prompt");
     }
 
     std::string ReadRawResponse(const Entry& a_entry)
@@ -465,7 +478,7 @@ namespace BioForge::Staging
         if (a_entry.stagingDir.empty()) {
             return {};
         }
-        return ReadWholeFile(std::filesystem::path{ a_entry.stagingDir } / "response.raw.txt");
+        return ReadWholeFile(StagingDirOf(a_entry.stagingDir) / "response.raw.txt");
     }
 
     std::string StagedBioFor(std::uint32_t a_refFormID)
@@ -477,7 +490,7 @@ namespace BioForge::Staging
             if (!e || e->stagingDir.empty()) {
                 return {};
             }
-            dir = e->stagingDir;
+            dir = StagingDirOf(e->stagingDir);
         }
         return ReadWholeFile(dir / "bio.prompt");
     }
@@ -493,7 +506,7 @@ namespace BioForge::Staging
                 a_note = "nothing staged to refine";
                 return false;
             }
-            dir = e->stagingDir;
+            dir = StagingDirOf(e->stagingDir);
         }
 
         // Keep the reply either way - a refine that made things worse is only
@@ -555,7 +568,7 @@ namespace BioForge::Staging
     {
         if (!a_entry.stagingDir.empty()) {
             std::error_code ec;
-            std::filesystem::remove_all(std::filesystem::path{ a_entry.stagingDir }, ec);
+            std::filesystem::remove_all(StagingDirOf(a_entry.stagingDir), ec);
             if (ec) {
                 logs::warn("staging: could not remove {} - {}"sv, a_entry.stagingDir, ec.message());
             }
@@ -592,13 +605,13 @@ namespace BioForge::Staging
 
     bool Commit(const Entry& a_entry)
     {
-        const auto source = std::filesystem::path{ a_entry.stagingDir } / "bio.prompt";
+        const auto source = StagingDirOf(a_entry.stagingDir) / "bio.prompt";
         {
             std::error_code ec;
             if (a_entry.stagingDir.empty() || !std::filesystem::exists(source, ec)) {
                 std::lock_guard lock{ g_mutex };
                 if (Entry* e = FindLocked(a_entry.refFormID)) {
-                    e->note = "staged bio.prompt not found: " + source.string();
+                    e->note = "staged bio.prompt not found: " + ContentLibrary::Utf8Of(source);
                 }
                 return false;
             }
@@ -635,8 +648,7 @@ namespace BioForge::Staging
         // when Commit ran it on the UI thread. Fire and forget: the worker
         // records the outcome under the mutex and the next Snapshot shows it.
         std::thread{ [refFormID = a_entry.refFormID, name, stem, stagingDir, uuid]() {
-            const auto    bio    = ReadWholeFile(std::filesystem::path{ stagingDir } /
-                                                 "bio.prompt");
+            const auto    bio    = ReadWholeFile(StagingDirOf(stagingDir) / "bio.prompt");
             const auto    result = Web::CreateOrUpdateBio(name, uuid, stem, bio);
 
             std::lock_guard lock{ g_mutex };

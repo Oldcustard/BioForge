@@ -41,7 +41,8 @@ namespace BioForge
         // sweeps a radius and crosses cell boundaries as it goes.
         const bool interior = playerCell && playerCell->IsInteriorCell();
 
-        std::size_t absent = 0;
+        std::size_t absent    = 0;
+        std::size_t creatures = 0;
 
         // One content-library sweep per scan, not per row: every layer
         // SkyrimNet resolves through (hub plugins, external layers, the
@@ -90,6 +91,17 @@ namespace BioForge
                 return RE::BSContainer::ForEachResult::kContinue;
             }
             if (cfg.uniqueOnly && !base->IsUnique()) {
+                return RE::BSContainer::ForEachResult::kContinue;
+            }
+
+            // Only people. A named unique horse (Shadowmere, Arvak, a mod's
+            // stable horse) passes every test above and was being handed a
+            // bio. ActorTypeNPC on the RUNTIME race is how the game itself
+            // tells a person from a creature; every playable and humanoid
+            // mod race carries it.
+            const auto* race = actor->GetRace();
+            if (!race || !race->HasKeywordString("ActorTypeNPC"sv)) {
+                ++creatures;
                 return RE::BSContainer::ForEachResult::kContinue;
             }
 
@@ -145,6 +157,9 @@ namespace BioForge
             logs::info("scan: skipped {} disabled reference(s) - present in the cell"
                        " record, not in the world"sv,
                        absent);
+        }
+        if (creatures > 0) {
+            logs::info("scan: skipped {} creature(s) - race lacks ActorTypeNPC"sv, creatures);
         }
 
         std::sort(out.begin(), out.end(),

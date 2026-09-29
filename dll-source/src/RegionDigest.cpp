@@ -132,13 +132,59 @@ namespace BioForge::RegionDigest
             return ContentLibrary::SkyrimNetDir().parent_path() / "BioForge" / "regions";
         }
 
-        std::string Sanitise(std::string_view a_name)
+        // Settlement name -> cache file name. UTF-8 bytes are kept: on a
+        // localised install every settlement name is non-ASCII, and folding
+        // those to '_' made same-length names share one cache file.
+        std::filesystem::path CacheFile(std::string_view a_name)
         {
             std::string out;
             for (const char ch : a_name) {
-                out += (std::isalnum(static_cast<unsigned char>(ch)) ? ch : '_');
+                const auto c = static_cast<unsigned char>(ch);
+                out += (std::isalnum(c) || c >= 0x80) ? ch : '_';
             }
-            return out.empty() ? "unknown" : out;
+            if (out.empty()) {
+                out = "unknown";
+            }
+            return CacheDir() / ContentLibrary::PathFromUtf8(out + ".txt");
+        }
+
+        // Code points, not bytes: the "5+ characters is distinctive" rule
+        // would otherwise pass a three-letter Cyrillic name.
+        std::size_t CharCount(std::string_view a_s)
+        {
+            return static_cast<std::size_t>(std::count_if(
+                a_s.begin(), a_s.end(),
+                [](char ch) { return (static_cast<unsigned char>(ch) & 0xC0) != 0x80; }));
+        }
+
+        // Is the character ending just before a_at (or starting at a_at) a
+        // letter or digit? UTF-8 aware, so a Cyrillic letter next to a match
+        // is a word character while «» and em dashes are not.
+        bool IsWordCharAt(std::string_view a_text, std::size_t a_at)
+        {
+            auto end = a_at + 1;
+            while (end < a_text.size() &&
+                   (static_cast<unsigned char>(a_text[end]) & 0xC0) == 0x80) {
+                ++end;
+            }
+            const auto c = static_cast<unsigned char>(a_text[a_at]);
+            if (c < 0x80) {
+                return std::isalnum(c) != 0;
+            }
+            const auto wide = ContentLibrary::WideFromUtf8(a_text.substr(a_at, end - a_at));
+            return !wide.empty() && IsCharAlphaNumericW(wide.front());
+        }
+
+        bool IsWordCharBefore(std::string_view a_text, std::size_t a_pos)
+        {
+            if (a_pos == 0) {
+                return false;
+            }
+            auto start = a_pos - 1;
+            while (start > 0 && (static_cast<unsigned char>(a_text[start]) & 0xC0) == 0x80) {
+                --start;
+            }
+            return IsWordCharAt(a_text, start);
         }
 
         std::string ReadFile(const std::filesystem::path& a_path)
@@ -155,15 +201,36 @@ namespace BioForge::RegionDigest
         // display name lowercased with spaces as underscores, plus a reference
         // suffix.
         //
-        // The uppercasing is written out rather than calling toupper. An
-        // ASCII fold is exactly right here and carries no locale surprises:
-        // BioFileName builds these stems by stripping everything outside
-        // [a-z0-9_-], so there is nothing else in them to fold.
+        // Capitalisation is load-bearing: citations match case-sensitively
+        // against prose, where names are always capitalised. ASCII stems are
+        // written out rather than calling toupper, for no locale surprises;
+        // a non-ASCII stem (a Cyrillic name) uppercases through the invariant
+        // locale instead, or it would never be cited at all.
         std::string NameFromStem(std::string a_stem)
         {
             const auto underscore = a_stem.find_last_of('_');
             if (underscore != std::string::npos && a_stem.size() - underscore <= 5) {
                 a_stem.resize(underscore);   // drop the _9A8 reference suffix
+            }
+
+            const bool ascii = std::all_of(a_stem.begin(), a_stem.end(), [](char ch) {
+                return static_cast<unsigned char>(ch) < 0x80;
+            });
+            if (!ascii) {
+                auto wide       = ContentLibrary::WideFromUtf8(a_stem);
+                bool capitalise = true;
+                for (auto& ch : wide) {
+                    if (ch == L'_') {
+                        ch = L' ';
+                    } else if (capitalise) {
+                        wchar_t upper = ch;
+                        LCMapStringEx(LOCALE_NAME_INVARIANT, LCMAP_UPPERCASE, &ch, 1, &upper, 1,
+                                      nullptr, nullptr, 0);
+                        ch = upper;
+                    }
+                    capitalise = (ch == L' ' || ch == L'-');
+                }
+                return ContentLibrary::Utf8FromWide(wide);
             }
 
             std::string out;
@@ -277,13 +344,10 @@ namespace BioForge::RegionDigest
             std::size_t count = 0;
             for (auto pos = a_haystack.find(a_needle); pos != std::string_view::npos;
                  pos      = a_haystack.find(a_needle, pos + a_needle.size())) {
-                const bool leftClear =
-                    pos == 0 ||
-                    std::isalnum(static_cast<unsigned char>(a_haystack[pos - 1])) == 0;
-                const auto after = pos + a_needle.size();
-                const bool rightClear =
-                    after >= a_haystack.size() ||
-                    std::isalnum(static_cast<unsigned char>(a_haystack[after])) == 0;
+                const bool leftClear  = !IsWordCharBefore(a_haystack, pos);
+                const auto after      = pos + a_needle.size();
+                const bool rightClear = after >= a_haystack.size() ||
+                                        !IsWordCharAt(a_haystack, after);
                 if (leftClear && rightClear) {
                     ++count;
                 }
@@ -527,7 +591,7 @@ namespace BioForge::RegionDigest
             for (auto& bio : scored) {
                 // Short single names match too much to count honestly.
                 const bool single = bio.name.find(' ') == std::string::npos;
-                if (single && bio.name.size() < 5) {
+                if (single && CharCount(bio.name) < 5) {
                     continue;
                 }
 
@@ -541,7 +605,7 @@ namespace BioForge::RegionDigest
                             pos, end == std::string::npos
                                      ? std::string_view::npos
                                      : end - pos);
-                    if (token.size() >= 5) {
+                    if (CharCount(token) >= 5) {
                         const auto lower = ToLower(token);
                         if (!isStop(lower) && !isPlace(lower) && !isShared(lower)) {
                             needle.assign(token);
@@ -682,7 +746,7 @@ namespace BioForge::RegionDigest
         // every frame it is open, and a region with no digest would otherwise
         // mean a filesystem hit per frame forever. A later Build overwrites the
         // empty entry with the real text, so nothing goes stale that matters.
-        auto text = ReadFile(CacheDir() / (Sanitise(a_region) + ".txt"));
+        auto text = ReadFile(CacheFile(a_region));
 
         std::lock_guard lock{ g_mutex };
         g_cache[a_region] = text;
@@ -736,7 +800,7 @@ namespace BioForge::RegionDigest
 
                         std::error_code ec;
                         std::filesystem::create_directories(CacheDir(), ec);
-                        std::ofstream out{ CacheDir() / (Sanitise(region) + ".txt"),
+                        std::ofstream out{ CacheFile(region),
                                            std::ios::binary | std::ios::trunc };
                         out.write(text.data(), static_cast<std::streamsize>(text.size()));
 

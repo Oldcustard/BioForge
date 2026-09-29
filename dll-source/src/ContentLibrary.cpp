@@ -23,6 +23,67 @@ namespace BioForge::ContentLibrary
         // inside the SkyrimNet mod itself. Lower than every other plugin.
         constexpr auto kBaseId = "skyrimnet.base"sv;
 
+        // UTF-8 -> UTF-16, falling back to the ANSI codepage when the bytes
+        // are not valid UTF-8. Never throws, unlike path's own u8 conversion.
+        std::wstring Widen(std::string_view a_s)
+        {
+            if (a_s.empty()) {
+                return {};
+            }
+            const auto len  = static_cast<int>(a_s.size());
+            UINT       page = CP_UTF8;
+            int        n    = MultiByteToWideChar(page, MB_ERR_INVALID_CHARS, a_s.data(), len,
+                                                  nullptr, 0);
+            if (n <= 0) {
+                page = CP_ACP;
+                n    = MultiByteToWideChar(page, 0, a_s.data(), len, nullptr, 0);
+            }
+            std::wstring out(static_cast<std::size_t>((std::max)(n, 0)), L'\0');
+            if (n > 0) {
+                MultiByteToWideChar(page, 0, a_s.data(), len, out.data(), n);
+            }
+            return out;
+        }
+
+        std::string Narrow(std::wstring_view a_s)
+        {
+            if (a_s.empty()) {
+                return {};
+            }
+            const auto len = static_cast<int>(a_s.size());
+            const int  n   = WideCharToMultiByte(CP_UTF8, 0, a_s.data(), len, nullptr, 0,
+                                                 nullptr, nullptr);
+            std::string out(static_cast<std::size_t>((std::max)(n, 0)), '\0');
+            if (n > 0) {
+                WideCharToMultiByte(CP_UTF8, 0, a_s.data(), len, out.data(), n, nullptr,
+                                    nullptr);
+            }
+            return out;
+        }
+
+        bool IsAscii(std::string_view a_s)
+        {
+            return std::all_of(a_s.begin(), a_s.end(),
+                               [](unsigned char c) { return c < 0x80; });
+        }
+
+        std::wstring FoldWide(std::string_view a_s)
+        {
+            // Invariant locale, so 'I' folds to 'i' on a Turkish install too
+            // and the result stays in step with the ASCII fold.
+            const auto w = Widen(a_s);
+            if (w.empty()) {
+                return w;
+            }
+            const auto   len = static_cast<int>(w.size());
+            std::wstring out(w.size(), L'\0');
+            if (LCMapStringEx(LOCALE_NAME_INVARIANT, LCMAP_LOWERCASE, w.data(), len,
+                              out.data(), len, nullptr, nullptr, 0) != len) {
+                return w;
+            }
+            return out;
+        }
+
         std::string Lower(std::string_view a_s)
         {
             std::string out{ a_s };
@@ -143,17 +204,48 @@ namespace BioForge::ContentLibrary
             if (stem.empty()) {
                 return false;
             }
-            a_out.clear();
-            a_out.reserve(stem.size());
-            for (const wchar_t ch : stem) {
-                a_out += static_cast<char>(ch);   // ASCII by the naming rule
-            }
+            // UTF-8, not a per-char narrowing: SkyrimNet names the file after
+            // the NPC, and a Cyrillic name truncated to bytes never matched
+            // the template name, so a covered NPC scanned as a gap forever.
+            a_out = Narrow(stem);
             return !a_out.empty();
         }
     }
 
+    std::filesystem::path PathFromUtf8(std::string_view a_utf8)
+    {
+        return std::filesystem::path{ Widen(a_utf8) };
+    }
+
+    std::string Utf8Of(const std::filesystem::path& a_path)
+    {
+        return Narrow(a_path.native());
+    }
+
+    std::wstring WideFromUtf8(std::string_view a_utf8)
+    {
+        return Widen(a_utf8);
+    }
+
+    std::string Utf8FromWide(std::wstring_view a_wide)
+    {
+        return Narrow(a_wide);
+    }
+
+    bool IsValidUtf8(std::string_view a_s)
+    {
+        return a_s.empty() ||
+               MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, a_s.data(),
+                                   static_cast<int>(a_s.size()), nullptr, 0) > 0;
+    }
+
     bool StemLess::operator()(std::string_view a_lhs, std::string_view a_rhs) const
     {
+        // Folded UTF-16 order agrees with the ASCII fold on ASCII input, so
+        // the cheap path and the Unicode path are one consistent ordering.
+        if (!IsAscii(a_lhs) || !IsAscii(a_rhs)) {
+            return FoldWide(a_lhs) < FoldWide(a_rhs);
+        }
         return std::lexicographical_compare(
             a_lhs.begin(), a_lhs.end(), a_rhs.begin(), a_rhs.end(),
             [](unsigned char a, unsigned char b) { return std::tolower(a) < std::tolower(b); });
@@ -236,7 +328,7 @@ namespace BioForge::ContentLibrary
         {
             std::error_code ec;
             if (!std::filesystem::is_directory(root, ec)) {
-                logs::warn("content: no SkyrimNet tree at {}"sv, root.string());
+                logs::warn("content: no SkyrimNet tree at {}"sv, Utf8Of(root));
                 return;
             }
         }
@@ -256,7 +348,7 @@ namespace BioForge::ContentLibrary
                 if (!id.is_directory(ec)) {
                     continue;
                 }
-                const auto idName = Lower(id.path().filename().string());
+                const auto idName = Lower(Utf8Of(id.path().filename()));
                 if (idName != kBaseId && disabled.contains(idName)) {
                     continue;
                 }

@@ -26,10 +26,12 @@ namespace BioForge::ContentLibrary
         bool                  isBase{};    // the shipped skyrimnet.base layer
     };
 
-    // Stems compare case-insensitively (ASCII). Files on disk mix spellings
-    // - albret_F18 beside battlemage_ancel_vaugier_c21 - and the Beta 24
-    // check was a Windows stat, which never cared; a case-sensitive lookup
-    // turns a covered NPC into a false gap.
+    // Stems are UTF-8 and compare case-insensitively. Files on disk mix
+    // spellings - albret_F18 beside battlemage_ancel_vaugier_c21 - and the
+    // Beta 24 check was a Windows stat, which never cared; a case-sensitive
+    // lookup turns a covered NPC into a false gap. Non-ASCII stems (Cyrillic
+    // names on a Russian install) fold through Windows' own lowercasing, the
+    // same rule the filesystem applies.
     struct StemLess
     {
         using is_transparent = void;
@@ -82,6 +84,17 @@ namespace BioForge::ContentLibrary
     // overwrite folder and external layers inside mod folders all appear as
     // one merged tree - which is exactly what SkyrimNet itself reads.
     std::filesystem::path SkyrimNetDir();
+
+    // Stems and names are carried as UTF-8 std::string. A std::filesystem::path
+    // built straight from a std::string decodes it with the ANSI codepage,
+    // which garbles any non-ASCII name - so every stem-to-path hop goes
+    // through these. Input that is not valid UTF-8 (a legacy-codepage string)
+    // falls back to the ANSI decode rather than throwing.
+    std::filesystem::path PathFromUtf8(std::string_view a_utf8);
+    std::string           Utf8Of(const std::filesystem::path& a_path);
+    bool                  IsValidUtf8(std::string_view a_s);
+    std::wstring          WideFromUtf8(std::string_view a_utf8);
+    std::string           Utf8FromWide(std::wstring_view a_wide);
 
     // One bio file's whole text, or "". Used by the roster and the digest
     // harvest; the staging bundle is checked by the caller first.

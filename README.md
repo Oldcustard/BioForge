@@ -112,7 +112,8 @@ with no restart.
 - 🐢 Lower `generate.maxConcurrent` if your provider rate-limits you. Raise it for a local
   model.
 - 👤 `scan.uniqueOnly` skips generic leveled NPCs (bandits, guards), which SkyrimNet's
-  generic template already handles well.
+  generic template already handles well. Creatures (horses, dogs, anything whose race
+  isn't a person's) are never scanned.
 - 🏷️ The **Template** column shows the file name a commit would write. A dimmed name
   with `*` is one BioForge derived because SkyrimNet hasn't assigned one.
 
