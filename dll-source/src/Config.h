@@ -68,6 +68,13 @@ namespace BioForge::Config
         // known neighbour.
         bool refinePass = true;
 
+        // Send BioForge's calls on its own `bioforge` variant (declared in
+        // settings/BioForge.yaml, configured in SkyrimNet's LLM settings)
+        // instead of SkyrimNet's CharacterProfileGeneration. Off by default:
+        // a fresh variant inherits the DIALOGUE defaults - a flash model on a
+        // 4k cap, tight for a ten-block bio - until the player configures it.
+        bool ownVariant = false;
+
         // So Refresh() can tell whether anything actually moved.
         bool operator==(const Settings&) const = default;
     };
@@ -92,4 +99,8 @@ namespace BioForge::Config
     void Refresh();
 
     const Settings& Get();
+
+    // The SkyrimNet LLM variant every BioForge call goes out on - bios, the
+    // refine pass and the region digest alike, so one switch moves them all.
+    const char* LlmVariant();
 }

@@ -29,15 +29,6 @@ namespace BioForge::Generator
         constexpr auto kRefinePrompt = "bioforge_refine_ties"sv;
         constexpr auto kRefineBlock  = "relationships"sv;
 
-        // SkyrimNet's own bio-writing variant, not one of ours. BioForge does
-        // exactly the job this variant is already configured for, so it should
-        // inherit whatever model the user picked for profile generation rather
-        // than making them configure a second one. It is also tuned for the
-        // task - full model, 10k max_tokens, temperature 0.7 - where a fresh
-        // variant inherits the dialogue defaults (a flash model on a 4k cap,
-        // which is tight for a ten-block bio).
-        constexpr auto kVariant = "CharacterProfileGeneration"sv;
-
         // Pull the string values of one key out of a flat JSON array of
         // objects. Deliberately a scanner and not a parser: the two payloads
         // consumed here (PublicGetRelatedActors, PublicGetWorldKnowledgeForActor)
@@ -270,6 +261,9 @@ namespace BioForge::Generator
             std::string   name;
             std::string   fileName;
             std::string   contextJson;
+            // Stamped at assembly on the main thread, like everything else in
+            // a Job: Pump also runs from completion callbacks on workers.
+            std::string   variant;
         };
 
         // A staged bio whose relationships block needs re-asking, and the
@@ -388,7 +382,7 @@ namespace BioForge::Generator
 
                 const bool queued = SN::SendCustomPrompt(
                     job.kind == Kind::Refine ? kRefinePrompt.data() : kPromptName.data(),
-                    kVariant.data(), job.contextJson.c_str(),
+                    job.variant.c_str(), job.contextJson.c_str(),
                     [kind = job.kind, ref = job.refFormID,
                      ctx = job.contextJson](const char* a_response, int a_success) {
                         OnComplete(kind, ref, ctx, a_response, a_success);
@@ -430,6 +424,7 @@ namespace BioForge::Generator
             a_job.name        = a_candidate.name;
             a_job.fileName    = Staging::BioFileName(a_candidate);
             a_job.contextJson = context;
+            a_job.variant     = Config::LlmVariant();
             return true;
         }
 
@@ -529,6 +524,7 @@ namespace BioForge::Generator
             roster.pop_back();
 
             a_job.kind        = Kind::Refine;
+            a_job.variant     = Config::LlmVariant();
             a_job.refFormID   = a_subject.refFormID;
             a_job.name        = a_subject.name;
             a_job.fileName    = Staging::BioFileName(a_subject);

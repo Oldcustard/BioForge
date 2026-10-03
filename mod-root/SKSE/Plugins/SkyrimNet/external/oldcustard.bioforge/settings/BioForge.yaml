@@ -12,18 +12,26 @@
 #   PublicGetPluginConfigValue("BioForge", <path>, <default>) — keep them in
 #   sync with Config.cpp.
 #
-# NOTE: deliberately no `variants:` block. BioForge dispatches on SkyrimNet's
-# own `CharacterProfileGeneration` variant — the one already configured for
-# writing character profiles — so the user picks a model in one place instead of
-# configuring a second, near-identical profile for us. It also inherits that
-# variant's tuning (full model, 10k max_tokens, temperature 0.7); a plugin's own
-# fresh variant inherits the dialogue defaults instead, which are a flash model
-# on a 4k cap. BioForge never handles an API key either way.
+# Model choice. By default BioForge dispatches on SkyrimNet's own
+# `CharacterProfileGeneration` variant — the one already configured for writing
+# character profiles — so the user picks a model in one place and inherits that
+# variant's tuning (full model, 10k max_tokens, temperature 0.7).
+#
+# `variants:` declares one more, `bioforge`, for players who want bios on a
+# different model (issue #4). It appears in SkyrimNet's LLM settings beside
+# CharacterProfileGeneration and is only used when `llm.useOwnVariant` is on.
+# Until configured it inherits the DIALOGUE defaults - a flash model on a 4k
+# cap, tight for a ten-block bio - which is why the switch defaults to off.
+# BioForge never handles a model or an API key either way.
 
 plugin:
   name: BioForge
-  version: "1.0.1"
+  version: "1.0.2"
   description: "Writes SkyrimNet character bios for mod-added NPCs that have none, from the characterisation their own mod already authored — dialogue, factions, outfit, location."
+
+variants:
+  - name: bioforge
+    description: "BioForge's own model, for writing NPC bios and regional digests on a different model than SkyrimNet's Character Profile Generation. Only used when 'Use BioForge's Own LLM' is on in BioForge's settings. Long-form prose: give it a capable model and raise max tokens to about 10000 - the inherited default of 4096 truncates bios."
 
 schema:
   fields:
@@ -75,6 +83,13 @@ schema:
       type: "bool"
       description: "After a batch finishes, re-ask for the relationships section of any bio that was written while the people around it still had no profile. Those bios could only note that their neighbours were present; this rewrites their ties now that the neighbours exist. One small extra call per affected NPC, and only for ones that actually gained a written neighbour - nothing else in the bio is touched, and a failed refine leaves the original exactly as it was."
       defaultValue: true
+      category: "Generation"
+
+    - name: "Use BioForge's Own LLM"
+      path: "llm.useOwnVariant"
+      type: "bool"
+      description: "Off: BioForge uses the model you set for SkyrimNet's Character Profile Generation. On: it uses the separate 'bioforge' model in SkyrimNet's LLM settings instead - for bios, the relationship refine pass and regional digests alike. Configure that model BEFORE turning this on: until you do, it inherits the dialogue defaults, whose 4096 max tokens cut bios short (they fail with missing sections). About 10000 max tokens matches Character Profile Generation."
+      defaultValue: false
       category: "Generation"
 
     # ---- Regional digest ---------------------------------------------------

@@ -11,7 +11,7 @@ if(NOT DEFINED VCPKG_TARGET_TRIPLET)
 endif()
 # Bump on every release: this becomes the SKSEPluginInfo version and the first
 # line of BioForge.log, which is how a bug report gets matched to a build.
-project(BioForge VERSION 1.0.1 LANGUAGES CXX)
+project(BioForge VERSION 1.0.2 LANGUAGES CXX)
 
 # CommonLibSSE-NG (alandtse/CommonLibVR branch ng).
 # Normally the submodule at dll-source/lib/commonlibsse-ng. BIOFORGE_COMMONLIB_DIR

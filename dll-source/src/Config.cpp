@@ -76,6 +76,7 @@ namespace BioForge::Config
                 std::clamp(ReadInt("generate.maxConcurrent", defaults.maxConcurrent), 1, 8);
 
             s.refinePass = ReadBool("generate.refinePass", defaults.refinePass);
+            s.ownVariant = ReadBool("llm.useOwnVariant", defaults.ownVariant);
 
             s.digestEnabled   = ReadBool("digest.enabled", defaults.digestEnabled);
             s.digestAutoBuild = ReadBool("digest.autoBuild", defaults.digestAutoBuild);
@@ -94,6 +95,7 @@ namespace BioForge::Config
             logs::info("{}: digest enabled={} autoBuild={} maxCandidates={}"sv,
                        a_what, g_settings.digestEnabled, g_settings.digestAutoBuild,
                        g_settings.digestMaxCandidates);
+            logs::info("{}: llm variant={}"sv, a_what, LlmVariant());
         }
     }
 
@@ -124,4 +126,14 @@ namespace BioForge::Config
     }
 
     const Settings& Get() { return g_settings; }
+
+    const char* LlmVariant()
+    {
+        // SkyrimNet's own profile-writing variant by default: BioForge does
+        // the job it is already configured for, so the player picks a model
+        // once and inherits its tuning (full model, 10k max_tokens, temp 0.7).
+        // `bioforge` is for players who want bios on a different model than
+        // SkyrimNet's own profile generation (issue #4).
+        return g_settings.ownVariant ? "bioforge" : "CharacterProfileGeneration";
+    }
 }

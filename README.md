@@ -8,7 +8,8 @@ personality of their own. Heavily modded load orders have thousands of these, an
 prebuilt bio pack can cover *your* mod list. BioForge fills the gaps on your machine.
 
 - 🔑 **No API key.** It uses the LLM you already set up in SkyrimNet, through SkyrimNet's
-  own `CharacterProfileGeneration` profile, so there's no second model to configure.
+  own `CharacterProfileGeneration` profile, so there's no second model to configure
+  (unless you want one - see `llm.useOwnVariant` below).
 - 👀 **Nothing is written without your say-so.** Every bio is staged for review first.
 - ⚡ **Live immediately.** A committed bio takes effect without a restart.
 
@@ -105,12 +106,17 @@ with no restart.
 | Include dead | `scan.includeDead` | `false` |
 | Concurrent generations | `generate.maxConcurrent` | `4` |
 | Refine ties after a batch | `generate.refinePass` | `true` |
+| Use BioForge's own LLM | `llm.useOwnVariant` | `false` |
 | Use regional digests | `digest.enabled` | `true` |
 | Build digest before a batch | `digest.autoBuild` | `true` |
 | Bios harvested per digest | `digest.maxCandidates` | `120` |
 
 - 🐢 Lower `generate.maxConcurrent` if your provider rate-limits you. Raise it for a local
   model.
+- 🧠 **A separate model for BioForge:** set up the `bioforge` model in SkyrimNet's LLM
+  settings, *then* turn on `llm.useOwnVariant`. Raise its max tokens to about 10,000 first:
+  until configured it inherits the dialogue defaults (4,096 tokens), which cut bios short.
+  Off, BioForge uses your Character Profile Generation model.
 - 👤 `scan.uniqueOnly` skips generic leveled NPCs (bandits, guards), which SkyrimNet's
   generic template already handles well. Creatures (horses, dogs, anything whose race
   isn't a person's) are never scanned.

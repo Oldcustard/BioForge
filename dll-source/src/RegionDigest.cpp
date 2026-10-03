@@ -22,11 +22,6 @@ namespace BioForge::RegionDigest
     {
         constexpr auto kPromptName = "bioforge_region_digest"sv;
 
-        // SkyrimNet's own profile-writing variant, for the same reason the bio
-        // generator uses it: one model choice for the user, and tuning that
-        // suits prose rather than the dialogue defaults. See Generator.cpp.
-        constexpr auto kVariant = "CharacterProfileGeneration"sv;
-
         // Location keywords marking a place people LIVE in, as opposed to one
         // building.
         constexpr std::string_view kSettlementTypes[] = {
@@ -785,7 +780,7 @@ namespace BioForge::RegionDigest
         // The completion runs on a SkyrimNet ThreadPool worker: pure file I/O,
         // no RE:: calls, same discipline as the bio generator's.
         const bool queued = SN::SendCustomPrompt(
-            kPromptName.data(), kVariant.data(), context.c_str(),
+            kPromptName.data(), Config::LlmVariant(), context.c_str(),
             [region = a_region.name](const char* a_response, int a_success) {
                 if (a_response && a_success != 0) {
                     const auto text = KeepBullets(a_response);
