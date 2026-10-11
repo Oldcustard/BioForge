@@ -105,8 +105,8 @@ a dislike, a phobia, a vice or a temperament, shown beside the bio.
 - 🔞 **Intimate blocks** (SeverActions' Adult pack) are off by default, never given to
   children. The pack's more extreme entries are weighted to be very rare.
 - 🎭 **Anything can happen, rarely.** Every block is reachable: the odd secret Daedra
-  worshipper or cowardly guard turns up, just not often. No trait is rarer than about
-  1 NPC in 400 (`floor` in the rules file), so rare traits are ones you actually meet.
+  worshipper or cowardly guard turns up, just not often. Rare sets share a fixed
+  "pool" (any Daedric Prince: about 1 NPC in 40), so they're ones you actually meet.
 - ✏️ The rules live in `SKSE/Plugins/BioForge/block_rules.ini`, a commented text file
   you can edit. `tools/block_odds.py` (in the source repo) prints how often each block
   comes up for a given kind of NPC. Without SeverActions, none of this appears.

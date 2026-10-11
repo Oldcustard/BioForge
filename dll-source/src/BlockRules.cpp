@@ -47,6 +47,17 @@ namespace BioForge::BlockRules
             std::vector<Cond>        when;
             std::vector<Cond>        unless;
             std::vector<Cond>        rarely;     // any holds: a tenth of the weight
+            std::string              pool;       // a member of this group pool, or ""
+        };
+
+        // `pool = <name> <percent>`: a set of rare options that between them
+        // take a fixed share of the group's rolls, split by their weights.
+        // The base level for the set as a whole - an entry for the same key
+        // outside the pool (Orcs lean to Malacath) still adds on top.
+        struct Pool
+        {
+            std::string name;
+            double      share{};   // fraction of the group's rolls
         };
 
         struct Group
@@ -56,69 +67,65 @@ namespace BioForge::BlockRules
             int                      chance{ -1 };   // -1: not set in the file
             bool                     intimate{};
             std::vector<Cond>        unless;
+            std::vector<Pool>        pools;
             std::vector<Entry>       entries;
         };
 
         std::vector<Group> g_groups;
         bool               g_loaded{};
 
-        // `floor = N` in the rules file: no block that can be rolled is rarer
-        // than N% of NPCs. Rare traits have to be rare, but a trait so rare
-        // no player ever meets it might as well not exist.
-        double g_floor{};
-
-        // Raise every rollable option to at least the floor's share of its
-        // group, taking the difference from the rest in proportion to their
-        // weights, so the group's own chance is unchanged. a_chance is the
-        // group's chance as a fraction. Weight 0 (never rolled) stays 0.
-        std::vector<double> FloorWeights(const std::vector<int>& a_weights, double a_chance)
+        // One usable flavour line for this NPC, its weight already adjusted
+        // for `rarely`.
+        struct Line
         {
-            std::vector<double> share(a_weights.size());
-            double              total = 0.0;
-            for (const int w : a_weights) {
-                total += w;
-            }
-            if (total <= 0.0) {
-                return share;
-            }
-            for (std::size_t i = 0; i < a_weights.size(); ++i) {
-                share[i] = a_weights[i] / total;
-            }
-            if (g_floor <= 0.0 || a_chance <= 0.0) {
-                return share;
+            std::string key;
+            int         weight{};
+            std::string pool;
+        };
+
+        // Each line's share of the group's rolls. A pool takes its fixed
+        // share, split among its members by weight; everything outside a pool
+        // shares the rest by weight. A pool with no usable member for this
+        // NPC takes nothing, and pools that would add past the whole group
+        // are scaled down to fit.
+        std::vector<double> LineShares(const Group& a_group, const std::vector<Line>& a_lines)
+        {
+            std::vector<double> share(a_lines.size());
+
+            std::map<std::string, double> poolWeight;   // usable members only
+            double                        freeWeight = 0.0;
+            for (const auto& l : a_lines) {
+                if (l.pool.empty()) {
+                    freeWeight += l.weight;
+                } else {
+                    poolWeight[l.pool] += l.weight;
+                }
             }
 
-            const double need = (std::min)(1.0, g_floor / 100.0 / a_chance);
-            std::vector<bool> fixed(a_weights.size());
-            for (;;) {
-                bool        changed = false;
-                std::size_t count   = 0;
-                for (std::size_t i = 0; i < share.size(); ++i) {
-                    if (!fixed[i] && a_weights[i] > 0 && share[i] < need) {
-                        fixed[i] = true;
-                        changed  = true;
-                    }
-                    count += fixed[i] ? 1 : 0;
-                }
-                if (!changed) {
-                    return share;
-                }
-                // A floor too high for the group's size: share equally.
-                const double free = 1.0 - need * static_cast<double>(count);
-                double       rest = 0.0;
-                for (std::size_t i = 0; i < share.size(); ++i) {
-                    rest += fixed[i] ? 0.0 : a_weights[i];
-                }
-                if (free <= 0.0 || rest <= 0.0) {
-                    for (std::size_t i = 0; i < share.size(); ++i) {
-                        share[i] = a_weights[i] > 0 ? 1.0 : 0.0;
-                    }
-                    return share;
-                }
-                for (std::size_t i = 0; i < share.size(); ++i) {
-                    share[i] = fixed[i] ? need : free * a_weights[i] / rest;
+            std::map<std::string, double> poolShare;
+            double                        pooled = 0.0;
+            for (const auto& p : a_group.pools) {
+                const auto it = poolWeight.find(p.name);
+                if (it != poolWeight.end() && it->second > 0.0) {
+                    poolShare[p.name] = p.share;
+                    pooled += p.share;
                 }
             }
+            // Nothing outside the pools: they ARE the group, in proportion.
+            const double scale = pooled > 1.0 || (freeWeight <= 0.0 && pooled > 0.0)
+                                     ? 1.0 / pooled
+                                     : 1.0;
+            const double rest = 1.0 - pooled * scale;
+
+            for (std::size_t i = 0; i < a_lines.size(); ++i) {
+                const auto& l = a_lines[i];
+                if (l.pool.empty()) {
+                    share[i] = freeWeight > 0.0 ? rest * l.weight / freeWeight : 0.0;
+                } else if (const auto it = poolShare.find(l.pool); it != poolShare.end()) {
+                    share[i] = it->second * scale * l.weight / poolWeight[l.pool];
+                }
+            }
+            return share;
         }
 
         std::mutex                            g_saltMutex;
@@ -304,7 +311,7 @@ namespace BioForge::BlockRules
             return true;
         }
 
-        // <key> [weight N] [when c c ...] [unless c c ...] [rarely c c ...]
+        // <key> [weight N] [pool NAME] [when c c ...] [unless c c ...] [rarely c c ...]
         bool ParseEntry(std::string_view a_value, bool a_fact, Entry& a_entry, std::string& a_error)
         {
             a_entry      = {};
@@ -325,11 +332,14 @@ namespace BioForge::BlockRules
             std::vector<std::string> when, unless, rarely;
             for (std::size_t i = 1; i < tokens.size(); ++i) {
                 const auto word = Lower(tokens[i]);
-                if (a_fact && (word == "weight" || word == "rarely")) {
+                if (a_fact && (word == "weight" || word == "rarely" || word == "pool")) {
                     a_error = "a fact always applies, so it takes no '" + word + "'";
                     return false;
                 }
-                if (word == "weight" && i + 1 < tokens.size()) {
+                if (word == "pool" && i + 1 < tokens.size()) {
+                    a_entry.pool = Lower(tokens[++i]);
+                    mode         = None;
+                } else if (word == "weight" && i + 1 < tokens.size()) {
                     try {
                         a_entry.weight = (std::max)(0, std::stoi(tokens[++i]));
                     } catch (...) {
@@ -483,7 +493,6 @@ namespace BioForge::BlockRules
     {
         g_groups.clear();
         g_loaded = false;
-        g_floor  = 0.0;
 
         const auto    path = RulesPath();
         std::ifstream in{ path, std::ios::binary };
@@ -523,19 +532,6 @@ namespace BioForge::BlockRules
             }
 
             const auto eq = text.find('=');
-
-            // The one file-wide setting, above the first [group].
-            if (!current && eq != std::string_view::npos &&
-                Lower(Trim(text.substr(0, eq))) == "floor") {
-                try {
-                    g_floor = std::clamp(std::stod(std::string{ Trim(text.substr(eq + 1)) }), 0.0, 5.0);
-                } catch (...) {
-                    logs::warn("block rules: line {}: bad floor - skipped"sv, lineNo);
-                    ++rejected;
-                }
-                continue;
-            }
-
             if (!current || eq == std::string_view::npos) {
                 logs::warn("block rules: line {}: not inside a [group] or no '='"sv, lineNo);
                 ++rejected;
@@ -557,6 +553,18 @@ namespace BioForge::BlockRules
                 current->intimate = Lower(value) == "true";
             } else if (name == "unless") {
                 ParseConds(SplitWords(value), current->unless, error);
+            } else if (name == "pool") {
+                // pool = <name> <percent of the group's rolls>
+                const auto words = SplitWords(value);
+                try {
+                    if (words.size() != 2) {
+                        throw std::invalid_argument{ "" };
+                    }
+                    current->pools.push_back(
+                        Pool{ Lower(words[0]), std::clamp(std::stod(words[1]), 0.0, 100.0) / 100.0 });
+                } catch (...) {
+                    error = "bad pool (want: pool = <name> <percent>)";
+                }
             } else if (name == "fact" || name == "flavour" || name == "flavor") {
                 Entry entry;
                 if (ParseEntry(value, name == "fact", entry, error)) {
@@ -573,12 +581,26 @@ namespace BioForge::BlockRules
         }
 
         std::size_t entries = 0;
+        std::size_t pools   = 0;
         for (const auto& g : g_groups) {
             entries += g.entries.size();
+            pools += g.pools.size();
+            // A member naming a pool its group never declared would silently
+            // roll at nothing; say so.
+            for (const auto& e : g.entries) {
+                const bool known = e.pool.empty() ||
+                                   std::any_of(g.pools.begin(), g.pools.end(),
+                                               [&](const Pool& p) { return p.name == e.pool; });
+                if (!known) {
+                    logs::warn("block rules: [{}] {} names pool '{}', which [{}] does not declare"sv,
+                               g.name, e.key, e.pool, g.name);
+                    ++rejected;
+                }
+            }
         }
         g_loaded = true;
-        logs::info("block rules: {} group(s), {} rule(s), floor {}%{}"sv, g_groups.size(), entries,
-                   g_floor,
+        logs::info("block rules: {} group(s), {} rule(s), {} pool(s){}"sv, g_groups.size(), entries,
+                   pools,
                    rejected ? std::format(", {} line(s) rejected", rejected) : std::string{});
     }
 
@@ -641,14 +663,6 @@ namespace BioForge::BlockRules
             c.carried = true;
             plan.carried.push_back(std::move(c));
         }
-
-        // One menu slot per key: entries naming the same block (a leaning by
-        // race AND by faction) add their weights.
-        struct Candidate
-        {
-            std::string key;
-            int         weight{};
-        };
 
         // Every group rolls on its own: an NPC who lands every roll gets a
         // block from every group. There is deliberately no cap.
@@ -717,7 +731,7 @@ namespace BioForge::BlockRules
                 continue;
             }
 
-            std::vector<Candidate> slots;
+            std::vector<Line> lines;
             for (const auto& e : g.entries) {
                 if (e.fact || !usable(e)) {
                     continue;
@@ -728,36 +742,34 @@ namespace BioForge::BlockRules
                 const int weight = AnyHolds(e.rarely, a_actor) && e.weight > 0
                                        ? (std::max)(1, e.weight / 10)
                                        : e.weight;
-                auto it = std::find_if(slots.begin(), slots.end(),
-                                       [&](const Candidate& c) { return c.key == e.key; });
-                if (it == slots.end()) {
-                    slots.push_back({ e.key, weight });
-                } else {
-                    it->weight += weight;
-                }
+                lines.push_back({ e.key, weight, e.pool });
             }
-            if (slots.empty()) {
+            if (lines.empty()) {
                 continue;
             }
 
-            // Every open group is a menu: a rolled one for the model to keep,
-            // replace or drop, the rest for it to add to when the evidence
-            // names an option outright.
-            Menu m;
+            // One menu slot per key. Lines naming the same block add up: a
+            // leaning by race AND by faction, or a pool's base share plus a
+            // race's leaning on top (Orcs and Malacath).
+            Menu                m;
+            std::vector<double> shares;
             m.group = g.name;
             m.tabs  = tabs;
-            for (const auto& c : slots) {
-                m.keys.push_back(c.key);
-                m.titles.push_back(findBlock(c.key)->title);
+            const auto lineShares = LineShares(g, lines);
+            for (std::size_t i = 0; i < lines.size(); ++i) {
+                const auto at = std::find(m.keys.begin(), m.keys.end(), lines[i].key);
+                if (at == m.keys.end()) {
+                    m.keys.push_back(lines[i].key);
+                    m.titles.push_back(findBlock(lines[i].key)->title);
+                    shares.push_back(lineShares[i]);
+                } else {
+                    shares[at - m.keys.begin()] += lineShares[i];
+                }
             }
 
             // Weight 0 marks an option that is never rolled but is still on
             // the menu, for the model to add when the evidence names it.
-            std::mt19937     rng{ Seed(ref, salt, g.name) };
-            std::vector<int> weights;
-            for (const auto& c : slots) {
-                weights.push_back(c.weight);
-            }
+            std::mt19937 rng{ Seed(ref, salt, g.name) };
             // An intimate group's `chance` scales the player's intimate
             // setting rather than replacing it (unset = 100%), so the setting
             // stays the master dial and the file can still make one intimate
@@ -765,10 +777,9 @@ namespace BioForge::BlockRules
             // In hundredths of a percent, so the product keeps its precision.
             const int chance = intimate ? cfg.blocksIntimateChance * (g.chance < 0 ? 100 : g.chance)
                                         : (std::max)(0, g.chance) * 100;
-            const bool any   = std::any_of(weights.begin(), weights.end(),
-                                           [](int w) { return w > 0; });
+            const bool any   = std::any_of(shares.begin(), shares.end(),
+                                           [](double s) { return s > 0.0; });
             if (any && std::uniform_int_distribution<int>{ 0, 9999 }(rng) < chance) {
-                const auto                      shares = FloorWeights(weights, chance / 10000.0);
                 std::discrete_distribution<int> pick{ shares.begin(), shares.end() };
                 m.defaultIndex = pick(rng);
 
