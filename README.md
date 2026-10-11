@@ -85,8 +85,9 @@ a dislike, a phobia, a vice or a temperament, shown beside the bio.
 
 - ✅ **Facts come from game data.** A Vigilant of Stendarr worships Stendarr, a
   Stormcloak dislikes the Empire, someone with the drunk voice is an alcoholic.
-- 🎲 **Flavour is rolled first**, for variety, capped at two per NPC by default. The roll
-  is stable per NPC; **Reroll** in the Blocks column rolls again.
+- 🎲 **Flavour is rolled first**, for variety. Each trait group (religion, temperament,
+  dislikes, phobias, vices...) rolls on its own chance, so an average NPC gets two or
+  three. The roll is stable per NPC; **Reroll** in the Blocks column rolls again.
 - 🔎 **Then a model checks the rolls against the evidence.** It keeps each roll unless the
   NPC's evidence contradicts it, in which case it replaces or drops it. It adds a trait
   from a group that didn't roll only when the evidence names it outright: a priestess
@@ -145,7 +146,6 @@ with no restart.
 | Build digest before a batch | `digest.autoBuild` | `true` |
 | Bios harvested per digest | `digest.maxCandidates` | `120` |
 | Use bio blocks | `blocks.enabled` | `true` |
-| Flavour blocks per NPC | `blocks.maxFlavour` | `2` |
 | Intimate blocks | `blocks.intimate` | `false` |
 | Intimate block chance (%) | `blocks.intimateChance` | `30` |
 

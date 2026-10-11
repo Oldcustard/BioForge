@@ -21,7 +21,7 @@
 
    Output is ONE `### bio_blocks` section, one line per group answered. The DLL
    checks every answer against the same lists; anything it cannot read keeps
-   the roll, and the flavour cap is enforced whatever comes back.
+   the roll and adds nothing.
 
    ROLE MARKERS ARE MANDATORY, and every heading needs a guaranteed non-empty
    body. bioforge_generate.prompt documents both, and the rest of the renderer
@@ -47,8 +47,6 @@ them against the profile - not to pick the traits that fit best.
 - **Add a trait from a group that did not roll only when the profile names it outright**
   - a character who prays to Dibella, a man described as drinking himself stupid every
   night. An option that would merely suit them is not enough; leave the group out.
-- Respect the limit on how many traits there may be. To add one when it is reached,
-  you must drop a rolled trait that the profile contradicts.
 - The traits already shown alongside are settled. Do not repeat or contradict them.
 
 # Output format

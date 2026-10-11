@@ -57,7 +57,6 @@ namespace BioForge::BlockRules
         std::vector<Choice> facts;
         std::vector<Choice> flavour;         // the rolls, before any review
         std::vector<Menu>   menus;           // every open group, for the review
-        int                 maxFlavour{};
 
         // What would be applied: facts + flavour, carried excluded.
         [[nodiscard]] std::vector<Choice> ToApply() const;
@@ -86,9 +85,8 @@ namespace BioForge::BlockRules
 
     // Settle the review from the model's `### bio_blocks` section:
     // `group: keep | drop | N` for a rolled group, `group: N` to add. A
-    // missing or malformed answer keeps the roll (adds nothing), and the
-    // flavour cap is enforced with rolls ahead of additions. Thread-safe, no
-    // RE:: calls. a_note says what changed or fell back, for the log.
+    // missing or malformed answer keeps the roll (adds nothing). Thread-safe,
+    // no RE:: calls. a_note says what changed or fell back, for the log.
     std::vector<Choice> Resolve(const Plan& a_plan, std::string_view a_section,
                                 std::string& a_note);
 

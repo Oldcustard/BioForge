@@ -94,7 +94,7 @@ namespace BioForge::UI
         // or an open group for the model to roll into or add to.
         bool Reviewable(const BlockRules::Plan& a_plan)
         {
-            return !a_plan.Empty() || (!a_plan.menus.empty() && a_plan.maxFlavour > 0);
+            return !a_plan.Empty() || !a_plan.menus.empty();
         }
 
         // "Talos Worshiper*, Spiders?" - facts starred; rolls marked "?"
@@ -135,12 +135,12 @@ namespace BioForge::UI
             for (const auto& c : a_plan.flavour) {
                 ImGuiMCP::Text("rolled  %s", c.title.c_str());
             }
-            if (!a_plan.menus.empty() && a_plan.maxFlavour > 0) {
+            if (!a_plan.menus.empty()) {
                 ImGuiMCP::TextDisabled(
                     "A model reviews the rolls against the evidence: it keeps each one\n"
-                    "unless the evidence contradicts it, and adds one of the %zu open\n"
-                    "group(s) only where the evidence names it (%d flavour block(s) at most).",
-                    a_plan.menus.size(), a_plan.maxFlavour);
+                    "unless the evidence contradicts it, and adds to the %zu open\n"
+                    "group(s) only where the evidence names an option outright.",
+                    a_plan.menus.size());
             }
             if (a_plan.Empty() && a_plan.carried.empty() && a_plan.menus.empty()) {
                 ImGuiMCP::TextDisabled("No rule applies to this NPC.");

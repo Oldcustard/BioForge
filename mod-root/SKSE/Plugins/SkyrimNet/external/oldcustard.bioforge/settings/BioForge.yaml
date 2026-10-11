@@ -135,15 +135,6 @@ schema:
       defaultValue: true
       category: "Bio blocks"
 
-    - name: "Flavour Blocks Per NPC"
-      path: "blocks.maxFlavour"
-      type: "int"
-      description: "The most flavour blocks (rolled, or added from the evidence) one NPC can get. Facts from game data do not count toward this. Every block is read each time the NPC speaks, so a small number keeps them cheap and keeps the bio the main voice."
-      defaultValue: 2
-      min: 0
-      max: 5
-      category: "Bio blocks"
-
     - name: "Intimate Blocks"
       path: "blocks.intimate"
       type: "bool"
@@ -154,7 +145,7 @@ schema:
     - name: "Intimate Block Chance"
       path: "blocks.intimateChance"
       type: "int"
-      description: "Percent chance for each intimate group (behaviour, kinks, dislikes) to give an NPC a block, when Intimate Blocks is on. They still count toward Flavour Blocks Per NPC."
+      description: "Percent chance for each intimate group (behaviour, kinks, dislikes) to give an NPC a block, when Intimate Blocks is on."
       defaultValue: 30
       min: 0
       max: 100

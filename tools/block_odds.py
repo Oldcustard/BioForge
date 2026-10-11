@@ -1,19 +1,21 @@
 """How often each bio block is ROLLED for a given kind of NPC.
 
 Tune block_rules.ini here, not in the game. This replays BlockRules::Pick
-for a profile you describe - facts, `chance`, weights, `rarely`, `unless`,
-merged keys and the flavour cap with its random group order - and prints the
-odds of every block before the model's review. The review can only lower a
-roll's odds (a contradicted roll is replaced or dropped) or add a named one,
-so these are the ceiling for anything random.
+for a profile you describe - facts, `chance`, weights, `rarely`, `unless` and
+merged keys - and prints the exact odds of every block before the model's
+review. Every group rolls independently (there is no cap), so the odds are
+worked out, not simulated. The review can only lower a roll's odds (a
+contradicted roll is replaced or dropped) or add a named one, so these are
+the ceiling for anything random.
 
     python tools/block_odds.py --race NordRace
     python tools/block_odds.py --race NordRace --group religion
     python tools/block_odds.py --race OrcRace --faction "Skyrim.esm|086EEE" --group temperament
     python tools/block_odds.py --race NordRace --match "religion\\.(namira|sanguine|boethiah|mephala|meridia|sheogorath|hermaeus-mora|clavicus-vile|vaermina|peryite|mehrunes-dagon|jyggalag|malacath|molag-bal|hircine|nocturnal|azura|sithis|alduin)$"
 
---match sums every block whose key matches the regex: "how many NPCs end up
-a secret Daedra worshipper" rather than one Prince at a time.
+--match gives the odds of an NPC getting ANY block whose key matches the
+regex: "how many NPCs end up a secret Daedra worshipper" rather than one
+Prince at a time.
 
 Not modelled: what the NPC already carries (a covered group is skipped in
 game), blocks missing from SeverActions' library, and intimate tabs flagged
@@ -21,10 +23,8 @@ by SeverActions rather than by `intimate = true`.
 """
 
 import argparse
-import random
 import re
 import sys
-from collections import Counter
 from pathlib import Path
 
 RULES = Path(__file__).resolve().parent.parent / "mod-root/SKSE/Plugins/BioForge/block_rules.ini"
@@ -123,17 +123,16 @@ def prepare(groups, npc):
     return facts, open_groups
 
 
-def simulate(open_groups, cap, trials, rng):
-    hits = Counter()
-    for _ in range(trials):
-        rolled = []
-        for name, chance, keys, weights in open_groups:
-            if sum(weights) > 0 and rng.random() * 100 < chance:
-                rolled.append(rng.choices(keys, weights)[0])
-        rng.shuffle(rolled)          # the seeded priority order
-        for key in rolled[:cap]:
-            hits[key] += 1
-    return hits
+
+
+def odds(open_groups):
+    """Each block's probability: the group lands, then its weight's share."""
+    out = []
+    for name, chance, keys, weights in open_groups:
+        total = sum(weights)
+        p = {k: (chance / 100.0) * (w / total if total else 0.0) for k, w in zip(keys, weights)}
+        out.append((name, chance if total else 0, p))
+    return out
 
 
 def main():
@@ -145,12 +144,10 @@ def main():
     ap.add_argument("--skill", action="append", default=[], help="Destruction=50, repeatable")
     ap.add_argument("--child", action="store_true")
     ap.add_argument("--female", action="store_true")
-    ap.add_argument("--max-flavour", type=int, default=2)
     ap.add_argument("--intimate", action="store_true")
     ap.add_argument("--intimate-chance", type=int, default=30)
     ap.add_argument("--group", help="list only this group")
-    ap.add_argument("--match", help="regex over keys: print the summed odds")
-    ap.add_argument("--trials", type=int, default=200_000)
+    ap.add_argument("--match", help="regex over keys: odds of getting ANY matching block")
     ap.add_argument("--rules", type=Path, default=RULES)
     npc = ap.parse_args()
     npc.factions = {f.lower() for f in npc.faction}
@@ -159,29 +156,36 @@ def main():
     npc.skills = {k.lower(): int(v) for k, v in (s.split("=") for s in npc.skill)}
 
     facts, open_groups = prepare(parse(npc.rules), npc)
-    hits = simulate(open_groups, npc.max_flavour, npc.trials, random.Random(1))
+    groups = odds(open_groups)
+
+    def pct(p):
+        if p <= 0:
+            return "   never"
+        n = 1 / p
+        return f"{100 * p:6.2f}%  (1 in {n:,.1f})" if n < 10 else f"{100 * p:6.2f}%  (1 in {n:,.0f})"
 
     for group, key in facts:
         print(f"fact   {group:<16} {key.split(':')[-1]}")
-    print()
+    if facts:
+        print()
 
-    def pct(n):
-        p = 100.0 * n / npc.trials
-        return f"{p:6.2f}%  (1 in {npc.trials / n:,.0f})" if n else "   never"
-
-    for name, chance, keys, weights in open_groups:
+    for name, chance, p in groups:
         if npc.group and name != npc.group:
             continue
-        total = sum(hits[k] for k in keys)
-        print(f"[{name}] rolls {chance}%, lands after the cap for {pct(total)}")
-        for k in sorted(keys, key=lambda k: -hits[k]):
-            print(f"   {pct(hits[k])}  {k.split(':')[-1]}")
+        print(f"[{name}] lands for {pct(chance / 100.0)}")
+        for k in sorted(p, key=lambda k: -p[k]):
+            print(f"   {pct(p[k])}  {k.split(':')[-1]}")
         print()
+
+    expected = sum(chance for _, chance, _ in groups) / 100.0
+    print(f"flavour blocks per NPC: {expected:.2f} on average, plus {len(facts)} fact(s)")
 
     if npc.match:
         rx = re.compile(npc.match)
-        n = sum(v for k, v in hits.items() if rx.search(k))
-        print(f"matching {npc.match!r}: {pct(n)} of NPCs")
+        none = 1.0
+        for _, _, p in groups:
+            none *= 1.0 - sum(v for k, v in p.items() if rx.search(k))
+        print(f"any block matching {npc.match}: {pct(1.0 - none)} of NPCs")
 
 
 if __name__ == "__main__":

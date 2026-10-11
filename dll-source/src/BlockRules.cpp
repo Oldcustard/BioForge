@@ -527,7 +527,6 @@ namespace BioForge::BlockRules
     {
         Plan plan;
         const auto& cfg  = Config::Get();
-        plan.maxFlavour  = cfg.blocksMaxFlavour;
         plan.rulesLoaded = g_loaded;
         if (!a_actor || !g_loaded || !cfg.blocksEnabled ||
             SeverBio::GetStatus() != SeverBio::Status::Ready) {
@@ -569,13 +568,6 @@ namespace BioForge::BlockRules
             plan.carried.push_back(std::move(c));
         }
 
-        struct Rolled
-        {
-            std::size_t   group{};
-            std::uint32_t priority{};
-            int           index{ -1 };     // into the group's candidates
-            std::string   source;
-        };
         // One menu slot per key: entries naming the same block (a leaning by
         // race AND by faction) add their weights.
         struct Candidate
@@ -583,13 +575,10 @@ namespace BioForge::BlockRules
             std::string key;
             int         weight{};
         };
-        std::vector<Rolled>                    rolls;
-        std::vector<std::vector<Candidate>>    candidates(g_groups.size());
-        std::vector<std::vector<std::string>>  groupTabs(g_groups.size());
-        std::vector<int>                       menuIndex(g_groups.size(), -1);
 
-        for (std::size_t gi = 0; gi < g_groups.size(); ++gi) {
-            const auto& g = g_groups[gi];
+        // Every group rolls on its own: an NPC who lands every roll gets a
+        // block from every group. There is deliberately no cap.
+        for (const auto& g : g_groups) {
 
             // The tabs that mean "this group is decided": the rule file's,
             // plus wherever the group's blocks actually live now (the player
@@ -604,7 +593,6 @@ namespace BioForge::BlockRules
                     intimate = intimate || b->intimate;
                 }
             }
-            groupTabs[gi] = tabs;
 
             // Intimate content is opt-in, and never for a child - SeverActions
             // leaves such blocks out of a child's bio anyway.
@@ -655,6 +643,7 @@ namespace BioForge::BlockRules
                 continue;
             }
 
+            std::vector<Candidate> slots;
             for (const auto& e : g.entries) {
                 if (e.fact || !usable(e)) {
                     continue;
@@ -665,39 +654,17 @@ namespace BioForge::BlockRules
                 const int weight = AnyHolds(e.rarely, a_actor) && e.weight > 0
                                        ? (std::max)(1, e.weight / 10)
                                        : e.weight;
-                auto&     slots  = candidates[gi];
-                auto      it     = std::find_if(slots.begin(), slots.end(),
-                                                [&](const Candidate& c) { return c.key == e.key; });
+                auto it = std::find_if(slots.begin(), slots.end(),
+                                       [&](const Candidate& c) { return c.key == e.key; });
                 if (it == slots.end()) {
                     slots.push_back({ e.key, weight });
                 } else {
                     it->weight += weight;
                 }
             }
-            if (candidates[gi].empty()) {
+            if (slots.empty()) {
                 continue;
             }
-
-            std::mt19937 rng{ Seed(ref, salt, g.name) };
-            Rolled       r;
-            r.group    = gi;
-            r.priority = rng();
-
-            // Weight 0 marks an option that is never rolled but is still on
-            // the menu, for the model to add when the evidence names it.
-            std::vector<int> weights;
-            for (const auto& c : candidates[gi]) {
-                weights.push_back(c.weight);
-            }
-            const int  chance = intimate ? cfg.blocksIntimateChance : g.chance;
-            const bool any    = std::any_of(weights.begin(), weights.end(),
-                                            [](int w) { return w > 0; });
-            if (any && std::uniform_int_distribution<int>{ 0, 99 }(rng) < chance) {
-                std::discrete_distribution<int> pick{ weights.begin(), weights.end() };
-                r.index  = pick(rng);
-                r.source = "rolled";
-            }
-            rolls.push_back(std::move(r));
 
             // Every open group is a menu: a rolled one for the model to keep,
             // replace or drop, the rest for it to add to when the evidence
@@ -705,44 +672,34 @@ namespace BioForge::BlockRules
             Menu m;
             m.group = g.name;
             m.tabs  = tabs;
-            for (const auto& c : candidates[gi]) {
+            for (const auto& c : slots) {
                 m.keys.push_back(c.key);
                 m.titles.push_back(findBlock(c.key)->title);
             }
-            menuIndex[gi] = static_cast<int>(plan.menus.size());
+
+            // Weight 0 marks an option that is never rolled but is still on
+            // the menu, for the model to add when the evidence names it.
+            std::mt19937     rng{ Seed(ref, salt, g.name) };
+            std::vector<int> weights;
+            for (const auto& c : slots) {
+                weights.push_back(c.weight);
+            }
+            const int  chance = intimate ? cfg.blocksIntimateChance : g.chance;
+            const bool any    = std::any_of(weights.begin(), weights.end(),
+                                            [](int w) { return w > 0; });
+            if (any && std::uniform_int_distribution<int>{ 0, 99 }(rng) < chance) {
+                std::discrete_distribution<int> pick{ weights.begin(), weights.end() };
+                m.defaultIndex = pick(rng);
+
+                Choice c;
+                c.key    = m.keys[m.defaultIndex];
+                c.title  = m.titles[m.defaultIndex];
+                c.group  = g.name;
+                c.tabs   = tabs;
+                c.source = "rolled";
+                plan.flavour.push_back(std::move(c));
+            }
             plan.menus.push_back(std::move(m));
-        }
-
-        // The flavour cap. Groups compete in a seeded order rather than file
-        // order, so the last groups in the file are not always the ones to
-        // lose out.
-        std::sort(rolls.begin(), rolls.end(), [](const Rolled& a, const Rolled& b) {
-            return a.priority < b.priority;
-        });
-        int kept = 0;
-        for (auto& r : rolls) {
-            if (r.index < 0) {
-                continue;
-            }
-            if (kept >= plan.maxFlavour) {
-                r.index = -1;
-                continue;
-            }
-            ++kept;
-
-            const auto& g     = g_groups[r.group];
-            const auto& entry = candidates[r.group][r.index];
-            Choice      c;
-            c.key    = entry.key;
-            c.title  = findBlock(entry.key)->title;
-            c.group  = g.name;
-            c.tabs   = groupTabs[r.group];
-            c.source = r.source;
-            plan.flavour.push_back(std::move(c));
-
-            if (menuIndex[r.group] >= 0) {
-                plan.menus[menuIndex[r.group]].defaultIndex = r.index;
-            }
         }
         return plan;
     }
@@ -784,7 +741,7 @@ namespace BioForge::BlockRules
 
     std::string ReviewForPrompt(const Plan& a_plan)
     {
-        if (a_plan.menus.empty() || a_plan.maxFlavour <= 0) {
+        if (a_plan.menus.empty()) {
             return {};
         }
 
@@ -812,15 +769,14 @@ namespace BioForge::BlockRules
             }
         }
 
-        std::string out = std::format(
-            "At most {} of these traits in all (the traits shown alongside do not count).\n",
-            a_plan.maxFlavour);
+        std::string out;
         if (!rolled.empty()) {
-            out += "\nRolled for this person - keep each unless the evidence contradicts it:\n";
+            out += "Rolled for this person - keep each unless the evidence contradicts it:\n";
             out += rolled;
         }
         if (!open.empty()) {
-            out += "\nNot rolled - add one only when the evidence names it outright:\n";
+            out += out.empty() ? "" : "\n";
+            out += "Not rolled - add one only when the evidence names it outright:\n";
             out += open;
         }
         out.pop_back();
@@ -942,26 +898,12 @@ namespace BioForge::BlockRules
             addNote("no bio_blocks answer, kept the rolls");
         }
 
-        // The cap holds whatever the model did. The rolled groups were already
-        // within it, so kept and replaced traits come first and an addition
-        // only fits where a roll was dropped or never landed.
-        std::stable_sort(settled.begin(), settled.end(), [](const Settled& a, const Settled& b) {
-            return a.how != How::Added && b.how == How::Added;
-        });
-
         std::vector<Choice> out;
         for (const auto& f : a_plan.facts) {
             out.push_back(f);
         }
-        int kept = 0;
         for (const auto& s : settled) {
             const auto title = ShortTitle(s.menu->titles[s.index]);
-            if (kept >= a_plan.maxFlavour) {
-                addNote(s.menu->group + ": " + title + " over the cap of " +
-                        std::to_string(a_plan.maxFlavour) + ", left out");
-                continue;
-            }
-            ++kept;
             const auto why = s.reason.empty() ? std::string{ "the evidence" } : s.reason;
             Choice     c;
             c.key   = s.menu->keys[s.index];

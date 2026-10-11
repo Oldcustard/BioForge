@@ -83,10 +83,8 @@ namespace BioForge::Config
             s.digestMaxCandidates = std::clamp(
                 ReadInt("digest.maxCandidates", defaults.digestMaxCandidates), 20, 400);
 
-            s.blocksEnabled    = ReadBool("blocks.enabled", defaults.blocksEnabled);
-            s.blocksMaxFlavour = std::clamp(
-                ReadInt("blocks.maxFlavour", defaults.blocksMaxFlavour), 0, 5);
-            s.blocksIntimate       = ReadBool("blocks.intimate", defaults.blocksIntimate);
+            s.blocksEnabled        = ReadBool("blocks.enabled", defaults.blocksEnabled);
+            s.blocksIntimate      = ReadBool("blocks.intimate", defaults.blocksIntimate);
             s.blocksIntimateChance = std::clamp(
                 ReadInt("blocks.intimateChance", defaults.blocksIntimateChance), 0, 100);
             return s;
@@ -103,8 +101,8 @@ namespace BioForge::Config
                        a_what, g_settings.digestEnabled, g_settings.digestAutoBuild,
                        g_settings.digestMaxCandidates);
             logs::info("{}: llm variant={}"sv, a_what, LlmVariant());
-            logs::info("{}: blocks enabled={} maxFlavour={} intimate={} intimateChance={}"sv,
-                       a_what, g_settings.blocksEnabled, g_settings.blocksMaxFlavour,
+            logs::info("{}: blocks enabled={} intimate={} intimateChance={}"sv,
+                       a_what, g_settings.blocksEnabled,
                        g_settings.blocksIntimate, g_settings.blocksIntimateChance);
         }
     }

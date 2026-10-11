@@ -79,11 +79,6 @@ namespace BioForge::Config
         // feature: no plan, no menus in the prompt, nothing applied.
         bool blocksEnabled = true;
 
-        // How many FLAVOUR blocks (rolled or evidence-led) one NPC may get.
-        // Facts do not count: they follow from game data. Every block costs
-        // prompt tokens on every line the NPC speaks, so keep this small.
-        int blocksMaxFlavour = 2;
-
         // Intimate blocks (SeverActions' Adult pack: sexual behaviour, kinks,
         // dislikes) are opt-in, never for a child, and roll on their own
         // chance rather than the rules file's.
