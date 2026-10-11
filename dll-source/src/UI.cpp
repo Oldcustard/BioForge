@@ -417,16 +417,21 @@ namespace BioForge::UI
                 return;
             }
 
-            ImGuiMCP::TableSetupColumn("Bio");
+            // Stretch columns share the width equally by default, which clipped
+            // anything drawn after a long cell - the Blocks column's Reroll
+            // button vanished once an NPC had three blocks. Short columns and
+            // the buttons fit their content; Blocks gets the widest share.
+            constexpr auto fit = ImGuiMCP::ImGuiTableColumnFlags_WidthFixed;
+            ImGuiMCP::TableSetupColumn("Bio", fit);
             ImGuiMCP::TableSetupColumn("Name");
-            ImGuiMCP::TableSetupColumn("Reference");
+            ImGuiMCP::TableSetupColumn("Reference", fit);
             ImGuiMCP::TableSetupColumn("Source plugin");
-            ImGuiMCP::TableSetupColumn("Dist");
+            ImGuiMCP::TableSetupColumn("Dist", fit);
             ImGuiMCP::TableSetupColumn("Template");
             if (blocks) {
-                ImGuiMCP::TableSetupColumn("Blocks");
+                ImGuiMCP::TableSetupColumn("Blocks", ImGuiMCP::ImGuiTableColumnFlags_WidthStretch, 2.0f);
             }
-            ImGuiMCP::TableSetupColumn("Action");
+            ImGuiMCP::TableSetupColumn("Action", fit);
             ImGuiMCP::TableHeadersRow();
 
             for (const auto& c : g_results) {
@@ -505,14 +510,10 @@ namespace BioForge::UI
                     if (!plan) {
                         ImGuiMCP::TextDisabled("not loaded");
                     } else {
-                        const auto summary = PlanSummary(*plan);
-                        ImGuiMCP::Text("%s", summary.c_str());
-                        if (ImGuiMCP::IsItemHovered()) {
-                            PlanTooltip(*plan);
-                        }
+                        // The button first and the list wrapped after it, so a
+                        // long list can never push the button out of the cell.
                         const bool rollable = !plan->flavour.empty() || !plan->menus.empty();
                         if (rollable) {
-                            ImGuiMCP::SameLine();
                             if (ImGuiMCP::SmallButton("Reroll")) {
                                 BlockRules::Reroll(c.refFormID);
                             }
@@ -520,6 +521,12 @@ namespace BioForge::UI
                                 ImGuiMCP::SetTooltip("Roll this NPC's flavour blocks again.\n"
                                                      "Facts (*) follow from game data and stay.");
                             }
+                            ImGuiMCP::SameLine();
+                        }
+                        const auto summary = PlanSummary(*plan);
+                        ImGuiMCP::TextWrapped("%s", summary.c_str());
+                        if (ImGuiMCP::IsItemHovered()) {
+                            PlanTooltip(*plan);
                         }
                     }
                 }
