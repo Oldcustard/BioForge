@@ -62,6 +62,65 @@ namespace BioForge::BlockRules
         std::vector<Group> g_groups;
         bool               g_loaded{};
 
+        // `floor = N` in the rules file: no block that can be rolled is rarer
+        // than N% of NPCs. Rare traits have to be rare, but a trait so rare
+        // no player ever meets it might as well not exist.
+        double g_floor{};
+
+        // Raise every rollable option to at least the floor's share of its
+        // group, taking the difference from the rest in proportion to their
+        // weights, so the group's own chance is unchanged. a_chance is the
+        // group's chance as a fraction. Weight 0 (never rolled) stays 0.
+        std::vector<double> FloorWeights(const std::vector<int>& a_weights, double a_chance)
+        {
+            std::vector<double> share(a_weights.size());
+            double              total = 0.0;
+            for (const int w : a_weights) {
+                total += w;
+            }
+            if (total <= 0.0) {
+                return share;
+            }
+            for (std::size_t i = 0; i < a_weights.size(); ++i) {
+                share[i] = a_weights[i] / total;
+            }
+            if (g_floor <= 0.0 || a_chance <= 0.0) {
+                return share;
+            }
+
+            const double need = (std::min)(1.0, g_floor / 100.0 / a_chance);
+            std::vector<bool> fixed(a_weights.size());
+            for (;;) {
+                bool        changed = false;
+                std::size_t count   = 0;
+                for (std::size_t i = 0; i < share.size(); ++i) {
+                    if (!fixed[i] && a_weights[i] > 0 && share[i] < need) {
+                        fixed[i] = true;
+                        changed  = true;
+                    }
+                    count += fixed[i] ? 1 : 0;
+                }
+                if (!changed) {
+                    return share;
+                }
+                // A floor too high for the group's size: share equally.
+                const double free = 1.0 - need * static_cast<double>(count);
+                double       rest = 0.0;
+                for (std::size_t i = 0; i < share.size(); ++i) {
+                    rest += fixed[i] ? 0.0 : a_weights[i];
+                }
+                if (free <= 0.0 || rest <= 0.0) {
+                    for (std::size_t i = 0; i < share.size(); ++i) {
+                        share[i] = a_weights[i] > 0 ? 1.0 : 0.0;
+                    }
+                    return share;
+                }
+                for (std::size_t i = 0; i < share.size(); ++i) {
+                    share[i] = fixed[i] ? need : free * a_weights[i] / rest;
+                }
+            }
+        }
+
         std::mutex                            g_saltMutex;
         std::map<std::uint32_t, std::uint32_t> g_salt;
 
@@ -424,6 +483,7 @@ namespace BioForge::BlockRules
     {
         g_groups.clear();
         g_loaded = false;
+        g_floor  = 0.0;
 
         const auto    path = RulesPath();
         std::ifstream in{ path, std::ios::binary };
@@ -463,6 +523,19 @@ namespace BioForge::BlockRules
             }
 
             const auto eq = text.find('=');
+
+            // The one file-wide setting, above the first [group].
+            if (!current && eq != std::string_view::npos &&
+                Lower(Trim(text.substr(0, eq))) == "floor") {
+                try {
+                    g_floor = std::clamp(std::stod(std::string{ Trim(text.substr(eq + 1)) }), 0.0, 5.0);
+                } catch (...) {
+                    logs::warn("block rules: line {}: bad floor - skipped"sv, lineNo);
+                    ++rejected;
+                }
+                continue;
+            }
+
             if (!current || eq == std::string_view::npos) {
                 logs::warn("block rules: line {}: not inside a [group] or no '='"sv, lineNo);
                 ++rejected;
@@ -504,7 +577,8 @@ namespace BioForge::BlockRules
             entries += g.entries.size();
         }
         g_loaded = true;
-        logs::info("block rules: {} group(s), {} rule(s){}"sv, g_groups.size(), entries,
+        logs::info("block rules: {} group(s), {} rule(s), floor {}%{}"sv, g_groups.size(), entries,
+                   g_floor,
                    rejected ? std::format(", {} line(s) rejected", rejected) : std::string{});
     }
 
@@ -694,7 +768,8 @@ namespace BioForge::BlockRules
             const bool any   = std::any_of(weights.begin(), weights.end(),
                                            [](int w) { return w > 0; });
             if (any && std::uniform_int_distribution<int>{ 0, 9999 }(rng) < chance) {
-                std::discrete_distribution<int> pick{ weights.begin(), weights.end() };
+                const auto                      shares = FloorWeights(weights, chance / 10000.0);
+                std::discrete_distribution<int> pick{ shares.begin(), shares.end() };
                 m.defaultIndex = pick(rng);
 
                 Choice c;

@@ -1,8 +1,8 @@
 """How often each bio block is ROLLED for a given kind of NPC.
 
 Tune block_rules.ini here, not in the game. This replays BlockRules::Pick
-for a profile you describe - facts, `chance`, weights, `rarely`, `unless` and
-merged keys - and prints the exact odds of every block before the model's
+for a profile you describe - facts, `chance`, weights, `rarely`, `unless`,
+merged keys and the file's `floor` - and prints the exact odds of every block before the model's
 review. Every group rolls independently (there is no cap), so the odds are
 worked out, not simulated. The review can only lower a roll's odds (a
 contradicted roll is replaced or dropped) or add a named one, so these are
@@ -12,6 +12,8 @@ the ceiling for anything random.
     python tools/block_odds.py --race NordRace --group religion
     python tools/block_odds.py --race OrcRace --faction "Skyrim.esm|086EEE" --group temperament
     python tools/block_odds.py --race NordRace --match "religion\\.(namira|sanguine|boethiah|mephala|meridia|sheogorath|hermaeus-mora|clavicus-vile|vaermina|peryite|mehrunes-dagon|jyggalag|malacath|molag-bal|hircine|nocturnal|azura|sithis|alduin)$"
+
+--floor 0 (or any percent) overrides the file's floor, to try values.
 
 --match gives the odds of an NPC getting ANY block whose key matches the
 regex: "how many NPCs end up a secret Daedra worshipper" rather than one
@@ -31,7 +33,8 @@ RULES = Path(__file__).resolve().parent.parent / "mod-root/SKSE/Plugins/BioForge
 
 
 def parse(path):
-    groups = []
+    """The groups, and the file-wide floor (percent of NPCs, 0 if unset)."""
+    groups, floor = [], 0.0
     for raw in path.read_text(encoding="utf-8").splitlines():
         line = raw.split(";", 1)[0].strip()
         if not line:
@@ -40,9 +43,13 @@ def parse(path):
             groups.append({"name": line[1:-1].strip().lower(), "chance": None, "intimate": False,
                            "unless": [], "entries": []})
             continue
-        if "=" not in line or not groups:
+        if "=" not in line:
             continue
         name, value = (s.strip() for s in line.split("=", 1))
+        if not groups:
+            if name.lower() == "floor":
+                floor = min(max(float(value), 0.0), 5.0)
+            continue
         g = groups[-1]
         if name == "chance":
             g["chance"] = int(value)
@@ -68,7 +75,7 @@ def parse(path):
                     e[mode].append(tokens[i])
                 i += 1
             g["entries"].append(e)
-    return groups
+    return groups, floor
 
 
 def holds(cond, npc):
@@ -131,13 +138,39 @@ def prepare(groups, npc):
 
 
 
-def odds(open_groups):
-    """Each block's probability: the group lands, then its weight's share."""
+def floor_shares(weights, chance, floor):
+    """As BlockRules' FloorWeights: lift every rollable option to `floor`% of
+    NPCs, the rest of the group shrinking in proportion to pay for it."""
+    total = sum(weights)
+    if total <= 0:
+        return [0.0] * len(weights)
+    share = [w / total for w in weights]
+    if floor <= 0 or chance <= 0:
+        return share
+    need = min(1.0, floor / 100.0 / chance)
+    fixed = [False] * len(weights)
+    while True:
+        changed = False
+        for i, w in enumerate(weights):
+            if not fixed[i] and w > 0 and share[i] < need:
+                fixed[i] = changed = True
+        if not changed:
+            return share
+        free = 1.0 - need * sum(fixed)
+        rest = sum(w for i, w in enumerate(weights) if not fixed[i])
+        if free <= 0 or rest <= 0:
+            n = sum(1 for w in weights if w > 0)
+            return [1.0 / n if w > 0 else 0.0 for w in weights]
+        share = [need if fixed[i] else free * w / rest for i, w in enumerate(weights)]
+
+
+def odds(open_groups, floor):
+    """Each block's probability: the group lands, then its (floored) share."""
     out = []
     for name, chance, keys, weights in open_groups:
-        total = sum(weights)
-        p = {k: (chance / 100.0) * (w / total if total else 0.0) for k, w in zip(keys, weights)}
-        out.append((name, chance if total else 0, p))
+        c = chance / 100.0 if sum(weights) else 0.0
+        shares = floor_shares(weights, c, floor)
+        out.append((name, 100 * c, {k: c * s for k, s in zip(keys, shares)}))
     return out
 
 
@@ -154,6 +187,7 @@ def main():
     ap.add_argument("--intimate-chance", type=int, default=50)
     ap.add_argument("--group", help="list only this group")
     ap.add_argument("--match", help="regex over keys: odds of getting ANY matching block")
+    ap.add_argument("--floor", type=float, help="override the rules file's floor (percent)")
     ap.add_argument("--rules", type=Path, default=RULES)
     npc = ap.parse_args()
     npc.factions = {f.lower() for f in npc.faction}
@@ -161,8 +195,12 @@ def main():
     npc.voice = npc.voice.lower() if npc.voice else None
     npc.skills = {k.lower(): int(v) for k, v in (s.split("=") for s in npc.skill)}
 
-    facts, open_groups = prepare(parse(npc.rules), npc)
-    groups = odds(open_groups)
+    rules, floor = parse(npc.rules)
+    if npc.floor is not None:
+        floor = npc.floor
+    facts, open_groups = prepare(rules, npc)
+    groups = odds(open_groups, floor)
+    print(f"floor {floor}%\n")
 
     def pct(p):
         if p <= 0:
