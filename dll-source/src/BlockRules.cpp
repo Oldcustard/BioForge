@@ -46,6 +46,7 @@ namespace BioForge::BlockRules
             int                      weight{ 1 };
             std::vector<Cond>        when;
             std::vector<Cond>        unless;
+            std::vector<Cond>        rarely;     // any holds: weight drops to 1
             std::vector<std::string> evidence;   // lower-case words for add mode
         };
 
@@ -245,7 +246,7 @@ namespace BioForge::BlockRules
             return true;
         }
 
-        // <key> [weight N] [when c c ...] [unless c c ...] [evidence w, w ...]
+        // <key> [weight N] [when c c ...] [unless c c ...] [rarely c c ...] [evidence w, w ...]
         bool ParseEntry(std::string_view a_value, bool a_fact, Entry& a_entry, std::string& a_error)
         {
             a_entry      = {};
@@ -273,10 +274,14 @@ namespace BioForge::BlockRules
                 return false;
             }
 
-            enum { None, When, Unless } mode = None;
-            std::vector<std::string> when, unless;
+            enum { None, When, Unless, Rarely } mode = None;
+            std::vector<std::string> when, unless, rarely;
             for (std::size_t i = 1; i < tokens.size(); ++i) {
                 const auto word = Lower(tokens[i]);
+                if (a_fact && (word == "weight" || word == "rarely")) {
+                    a_error = "a fact always applies, so it takes no '" + word + "'";
+                    return false;
+                }
                 if (word == "weight" && i + 1 < tokens.size()) {
                     try {
                         a_entry.weight = (std::max)(0, std::stoi(tokens[++i]));
@@ -289,17 +294,22 @@ namespace BioForge::BlockRules
                     mode = When;
                 } else if (word == "unless") {
                     mode = Unless;
+                } else if (word == "rarely") {
+                    mode = Rarely;
                 } else if (mode == When) {
                     when.push_back(tokens[i]);
                 } else if (mode == Unless) {
                     unless.push_back(tokens[i]);
+                } else if (mode == Rarely) {
+                    rarely.push_back(tokens[i]);
                 } else {
                     a_error = "unexpected '" + tokens[i] + "'";
                     return false;
                 }
             }
             return ParseConds(when, a_entry.when, a_error) &&
-                   ParseConds(unless, a_entry.unless, a_error);
+                   ParseConds(unless, a_entry.unless, a_error) &&
+                   ParseConds(rarely, a_entry.rarely, a_error);
         }
 
         std::filesystem::path RulesPath()
@@ -602,8 +612,16 @@ namespace BioForge::BlockRules
             int           index{ -1 };     // into the group's candidates
             std::string   source;
         };
-        std::vector<Rolled>                   rolls;
-        std::vector<std::vector<const Entry*>> candidates(g_groups.size());
+        // One menu slot per key: entries naming the same block (a leaning by
+        // race AND by faction) add their weights and pool their evidence.
+        struct Candidate
+        {
+            std::string              key;
+            int                      weight{};
+            std::vector<std::string> evidence;
+        };
+        std::vector<Rolled>                    rolls;
+        std::vector<std::vector<Candidate>>    candidates(g_groups.size());
         std::vector<std::vector<std::string>>  groupTabs(g_groups.size());
         std::vector<int>                       menuIndex(g_groups.size(), -1);
 
@@ -675,8 +693,20 @@ namespace BioForge::BlockRules
             }
 
             for (const auto& e : g.entries) {
-                if (!e.fact && usable(e)) {
-                    candidates[gi].push_back(&e);
+                if (e.fact || !usable(e)) {
+                    continue;
+                }
+                // `rarely` keeps an unlikely pairing reachable - the odd
+                // cowardly guard - instead of ruling it out.
+                const int weight = AnyHolds(e.rarely, a_actor) ? (std::min)(1, e.weight) : e.weight;
+                auto&     slots  = candidates[gi];
+                auto      it     = std::find_if(slots.begin(), slots.end(),
+                                                [&](const Candidate& c) { return c.key == e.key; });
+                if (it == slots.end()) {
+                    slots.push_back({ e.key, weight, e.evidence });
+                } else {
+                    it->weight += weight;
+                    it->evidence.insert(it->evidence.end(), e.evidence.begin(), e.evidence.end());
                 }
             }
             if (candidates[gi].empty()) {
@@ -697,15 +727,15 @@ namespace BioForge::BlockRules
             std::vector<std::string> hits(candidates[gi].size());
             bool                     anyHit = false;
             for (std::size_t i = 0; i < candidates[gi].size(); ++i) {
-                const auto* e = candidates[gi][i];
-                for (const auto& word : e->evidence) {
+                const auto& c = candidates[gi][i];
+                for (const auto& word : c.evidence) {
                     if (ContainsWord(bio, word)) {
                         hits[i] = word;
                         anyHit  = true;
                         break;
                     }
                 }
-                weights.push_back(e->weight);
+                weights.push_back(c.weight);
             }
             if (anyHit) {
                 for (std::size_t i = 0; i < weights.size(); ++i) {
@@ -729,9 +759,9 @@ namespace BioForge::BlockRules
                 Menu m;
                 m.group = g.name;
                 m.tabs  = tabs;
-                for (const auto* e : candidates[gi]) {
-                    m.keys.push_back(e->key);
-                    m.titles.push_back(findBlock(e->key)->title);
+                for (const auto& c : candidates[gi]) {
+                    m.keys.push_back(c.key);
+                    m.titles.push_back(findBlock(c.key)->title);
                 }
                 menuIndex[gi] = static_cast<int>(plan.menus.size());
                 plan.menus.push_back(std::move(m));
@@ -761,10 +791,10 @@ namespace BioForge::BlockRules
             ++kept;
 
             const auto& g     = g_groups[r.group];
-            const auto* entry = candidates[r.group][r.index];
+            const auto& entry = candidates[r.group][r.index];
             Choice      c;
-            c.key    = entry->key;
-            c.title  = findBlock(entry->key)->title;
+            c.key    = entry.key;
+            c.title  = findBlock(entry.key)->title;
             c.group  = g.name;
             c.tabs   = groupTabs[r.group];
             c.source = r.source;

@@ -146,7 +146,7 @@ schema:
     - name: "Intimate Blocks"
       path: "blocks.intimate"
       type: "bool"
-      description: "Also roll blocks from SeverActions' Adult pack (sexual behaviour, kinks and dislikes). Never for children. SeverActions only shows these in a bio while its own intimacy setting is on. The most extreme entries in that pack are never handed out by BioForge."
+      description: "Also roll blocks from SeverActions' Adult pack (sexual behaviour, kinks and dislikes). Never for children. SeverActions only shows these in a bio while its own intimacy setting is on. The more extreme entries in that pack are weighted to be very rare."
       defaultValue: false
       category: "Bio blocks"
 

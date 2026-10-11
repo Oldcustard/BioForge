@@ -100,7 +100,9 @@ a dislike, a phobia, a vice or a temperament, shown beside the bio.
   has a block in, from you or a faction rule. Remove any block on SeverActions' Bio Blocks
   page.
 - 🔞 **Intimate blocks** (SeverActions' Adult pack) are off by default, never given to
-  children, and the pack's most extreme entries are never handed out.
+  children. The pack's more extreme entries are weighted to be very rare.
+- 🎭 **Anything can happen, rarely.** Every block is reachable: the odd secret Daedra
+  worshipper or cowardly guard turns up, just not often.
 - ✏️ The rules live in `SKSE/Plugins/BioForge/block_rules.ini`, a commented text file
   you can edit. Without SeverActions, none of this appears.
 
