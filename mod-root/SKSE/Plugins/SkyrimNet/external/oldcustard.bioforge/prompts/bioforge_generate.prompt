@@ -17,6 +17,14 @@
                               the NPC's AI packages and the reference's editor
                               location. NEVER empty - when the record says
                               nothing, it says so in words
+     bioBlocksFixed (string)  bullet lines: SeverActions bio blocks this NPC
+                              already carries or gets from game data (facts).
+                              May be ""
+     bioBlocksOpen  (string)  numbered menus, one per open trait group, each
+                              with a rolled default. May be "" - and then the
+                              model is never asked for a bio_blocks section.
+                              The DLL reads the answer back out of the reply
+                              and checks it against these same menus
 
    ROLE MARKERS ARE MANDATORY. SkyrimNet splits a rendered prompt into chat
    messages on "[ system ]" / "[ user ]" lines. Without them the messages array
@@ -99,10 +107,29 @@ as a character sheet an actor could play from, not as an encyclopedia entry.
 
 # Output format
 
-Output EXACTLY the ten sections below, each introduced by its `###` heading on its own
+{% if length(bioBlocksOpen) > 0 %}Output a `### bio_blocks` section FIRST, then EXACTLY the ten sections below, each
+introduced by its `###` heading on its own line, in this order, with nothing before the
+first heading and nothing after the last section. No preamble, no commentary, no
+markdown fences.
+
+### bio_blocks
+Settle the trait groups listed under "Traits to settle from the evidence": one line per
+group, `group: N` with the option's number, or `group: none`. Nothing else in this
+section.
+
+Each group has a default. KEEP IT unless the evidence clearly points to another option
+on that group's list - a priestess whose dialogue keeps invoking Dibella gets Dibella,
+whatever the default says; a man whose lines are all about the next drink gets the
+drinking vice. Answer none only when the evidence contradicts every option. Never name
+an option that is not on the list, and stay within the cap stated there.
+
+These traits are rendered beside the profile as separate blocks. Write the ten sections
+CONSISTENT with what you settle here - never contradict a trait - but do not restate
+them: the block already says it.
+{% else %}Output EXACTLY the ten sections below, each introduced by its `###` heading on its own
 line, in this order, with nothing before the first heading and nothing after the last
 section. No preamble, no commentary, no markdown fences.
-
+{% endif %}
 These are SkyrimNet's own bio blocks and its own target lengths. The finished bio is
 injected into every conversation this NPC ever has, so length is a permanent running
 cost - hit the targets rather than writing long.
@@ -360,6 +387,20 @@ here.
 {{ worldKnowledge }}
 {% endif %}{% if length(relatedActors) > 0 %}## People they have been around
 {{ relatedActors }}
+{% endif %}{% if length(bioBlocksFixed) > 0 %}## Traits shown alongside this profile
+{# SeverActions bio blocks: ones the NPC already carries, and ones that follow from
+   game data (a Vigilant worships Stendarr). They render beside the bio as their own
+   blocks, so the bio must agree with them without repeating them. #}
+{{ bioBlocksFixed }}
+These are already part of who this person is and are shown beside the profile you write.
+Stay consistent with them; do not repeat them.
+{% endif %}{% if length(bioBlocksOpen) > 0 %}## Traits to settle from the evidence
+{# One menu per open trait group, each with a seeded random default. The model
+   keeps the default unless the evidence above points elsewhere; the DLL checks
+   every answer against these menus and falls back to the default. #}
+{{ bioBlocksOpen }}
+Settle these in the `bio_blocks` section, from everything above: dialogue first, then
+factions, where they belong, what they wear and who they are around.
 {% endif %}
-Write the ten sections for this NPC now.
+{% if length(bioBlocksOpen) > 0 %}Write the bio_blocks section, then the ten sections, for this NPC now.{% else %}Write the ten sections for this NPC now.{% endif %}
 [ end user ]

@@ -6,6 +6,7 @@
 #include <string_view>
 #include <vector>
 
+#include "BlockRules.h"
 #include "ContentLibrary.h"
 
 namespace BioForge
@@ -42,6 +43,10 @@ namespace BioForge
             bool          committing{};  // a commit HTTP call is in flight
             bool          committed{};
             bool          refined{};     // ties rewritten by the second pass
+            // SeverActions bio blocks settled for this bio (facts plus the
+            // flavour the model kept or chose). Applied on commit.
+            std::vector<BlockRules::Choice> blocks;
+            std::string                     blocksNote;   // apply outcome
         };
 
         // <Data>/SKSE/Plugins/BioForge/staging, resolved from this DLL's own
@@ -59,6 +64,12 @@ namespace BioForge
         // dropped, then '_' + low 12 bits of the REFERENCE FormID as three
         // uppercase hex digits (torg_strong-arm_9A8 <- 0x680059A8).
         std::string BioFileName(const Candidate& a_candidate);
+
+        // The extra `### bio_blocks` section the generate prompt asks for
+        // first: the model's settlement of the open bio-block menus. It is
+        // not a bio block - ParseResponse skips it - and is read separately
+        // with ExtractSection(raw, kBioBlocksSection).
+        inline constexpr std::string_view kBioBlocksSection = "bio_blocks";
 
         // Parse an LLM response into the ten blocks and render it as a
         // {% block %} character bio in the corpus format. Lines before the
@@ -79,9 +90,13 @@ namespace BioForge
         // plus response.raw.txt and harvest.json either way, so a bad response
         // can still be inspected and retried). Empty a_bioText marks the entry
         // Failed with the missing blocks named in a_missing.
+        // a_blocks are the settled bio blocks, written to blocks.txt beside
+        // the bio and carried on the entry until commit applies them.
         void RecordGenerated(std::uint32_t a_refFormID, std::string_view a_contextJson,
                              std::string_view a_rawResponse, const std::string& a_bioText,
-                             const std::vector<std::string>& a_missing);
+                             const std::vector<std::string>& a_missing,
+                             const std::vector<BlockRules::Choice>& a_blocks,
+                             std::string_view a_blocksNote);
 
         // Fail an entry (queue refusal, LLM error, no UUID...). a_reason is the
         // error string, possibly SkyrimNet's own text.
@@ -109,6 +124,11 @@ namespace BioForge
         // outcome lands in the entry's committed/note fields by the next
         // Snapshot. Returns false only when there is nothing staged to commit;
         // a transport failure is reported through the note.
+        //
+        // When the commit lands, the entry's bio blocks are applied through
+        // SeverActions (if blocks are enabled) - the one moment BioForge
+        // applies blocks to a new bio, because the API asks for exactly that:
+        // once, on the player's own action.
         bool Commit(const Entry& a_entry);
 
         // Pull the body of one `{% block %}` out of .prompt text. Empty when

@@ -1,6 +1,8 @@
 #include "pch.h"
 
+#include "BlockRules.h"
 #include "Config.h"
+#include "SeverBio.h"
 #include "SkyrimNetAPI.h"
 #include "StagingStore.h"
 #include "UI.h"
@@ -22,9 +24,25 @@ namespace
     // any of this when the user actually opens it.
     void OnMessage(SKSE::MessagingInterface::Message* a_msg)
     {
-        if (!a_msg || a_msg->type != SKSE::MessagingInterface::kDataLoaded) {
+        if (!a_msg) {
             return;
         }
+
+        // SeverActions' Bio Blocks API is Papyrus, so it is asked once the VM
+        // is running a game: after every load and on a new game. A probe
+        // that changes nothing costs one call.
+        if (a_msg->type == SKSE::MessagingInterface::kPostLoadGame ||
+            a_msg->type == SKSE::MessagingInterface::kNewGame) {
+            BioForge::SeverBio::Probe();
+            return;
+        }
+
+        if (a_msg->type != SKSE::MessagingInterface::kDataLoaded) {
+            return;
+        }
+
+        // Before SkyrimNet: the rules only need the load order's forms.
+        BioForge::BlockRules::Load();
 
         if (!BioForge::SN::Init()) {
             logs::error("SkyrimNet.dll not found - BioForge needs SkyrimNet installed"sv);

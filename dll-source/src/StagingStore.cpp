@@ -5,6 +5,7 @@
 #include "Config.h"
 #include "ContentLibrary.h"
 #include "ScopeSelector.h"
+#include "SeverBio.h"
 #include "SkyrimNetAPI.h"
 #include "SkyrimNetWeb.h"
 
@@ -34,6 +35,11 @@ namespace BioForge::Staging
             return a_s;
         }
 
+        // MatchBlockName's answer for `### bio_blocks`: a known section, but
+        // not one of the ten - ParseResponse must stop capturing at it rather
+        // than run its lines into whichever block came before.
+        constexpr int kBioBlocksIndex = 100;
+
         // "### interject summary:" / "#### **Speech Style**" -> block index.
         // Compares letters/digits only, ignoring '_', punctuation and case, so
         // the common model typos still land on the right block.
@@ -53,6 +59,9 @@ namespace BioForge::Staging
                 if (clean == want) {
                     return static_cast<int>(i);
                 }
+            }
+            if (clean == "bioblocks") {
+                return kBioBlocksIndex;
             }
             return -1;
         }
@@ -171,6 +180,10 @@ namespace BioForge::Staging
             if (isHeading) {
                 const auto rest  = Trim(trimmed.substr(trimmed.find_first_not_of('#')));
                 const auto index = MatchBlockName(rest);
+                if (index == kBioBlocksIndex) {
+                    current = -1;   // read separately by ExtractSection
+                    continue;
+                }
                 if (index >= 0) {
                     current = index;
                     continue;
@@ -231,7 +244,9 @@ namespace BioForge::Staging
 
     void RecordGenerated(std::uint32_t a_refFormID, std::string_view a_contextJson,
                          std::string_view a_rawResponse, const std::string& a_bioText,
-                         const std::vector<std::string>& a_missing)
+                         const std::vector<std::string>& a_missing,
+                         const std::vector<BlockRules::Choice>& a_blocks,
+                         std::string_view a_blocksNote)
     {
         std::filesystem::path bundle;
         {
@@ -254,6 +269,8 @@ namespace BioForge::Staging
                 e->note.clear();
             }
             e->stagingDir = ContentLibrary::Utf8Of(bundle);
+            e->blocks     = a_blocks;
+            e->blocksNote.clear();
         }
 
         // The bundle is the audit trail: what the model was asked (harvest),
@@ -263,6 +280,21 @@ namespace BioForge::Staging
 
         if (!a_bioText.empty()) {
             WriteFile(bundle / "bio.prompt", a_bioText);
+        }
+
+        // key <TAB> source <TAB> title, one per line: which blocks commit
+        // will apply and why each is there.
+        if (!a_blocks.empty() || !a_blocksNote.empty()) {
+            std::string list;
+            for (const auto& b : a_blocks) {
+                list += b.key + "\t" + b.source + "\t" + b.title + "\n";
+            }
+            if (!a_blocksNote.empty()) {
+                list += "# ";
+                list += a_blocksNote;
+                list += "\n";
+            }
+            WriteFile(bundle / "blocks.txt", list);
         }
 
         std::lock_guard lock{ g_mutex };
@@ -630,6 +662,16 @@ namespace BioForge::Staging
         const std::string name{ a_entry.name };
         const std::string stagingDir{ a_entry.stagingDir };
 
+        // Read on this (UI) thread: the worker below must not touch config.
+        std::vector<SeverBio::ApplyItem> blocks;
+        if (Config::Get().blocksEnabled) {
+            for (const auto& b : a_entry.blocks) {
+                if (!b.carried) {
+                    blocks.push_back(SeverBio::ApplyItem{ b.key, b.tabs });
+                }
+            }
+        }
+
         {
             std::lock_guard lock{ g_mutex };
             Entry*          e = FindLocked(a_entry.refFormID);
@@ -647,20 +689,38 @@ namespace BioForge::Staging
         // take seconds - exactly the class of call that once froze the game
         // when Commit ran it on the UI thread. Fire and forget: the worker
         // records the outcome under the mutex and the next Snapshot shows it.
-        std::thread{ [refFormID = a_entry.refFormID, name, stem, stagingDir, uuid]() {
+        std::thread{ [refFormID = a_entry.refFormID, name, stem, stagingDir, uuid,
+                      blocks = std::move(blocks)]() mutable {
             const auto    bio    = ReadWholeFile(StagingDirOf(stagingDir) / "bio.prompt");
             const auto    result = Web::CreateOrUpdateBio(name, uuid, stem, bio);
 
-            std::lock_guard lock{ g_mutex };
-            if (Entry* e = FindLocked(refFormID)) {
-                e->committing = false;
-                e->committed  = result.ok;
-                e->note       = result.note;
-                if (result.ok) {
-                    logs::info("commit: {} -> {}"sv, name, result.note);
-                } else {
-                    logs::error("commit: {} failed - {}"sv, name, result.note);
+            {
+                std::lock_guard lock{ g_mutex };
+                if (Entry* e = FindLocked(refFormID)) {
+                    e->committing = false;
+                    e->committed  = result.ok;
+                    e->note       = result.note;
+                    if (result.ok && !blocks.empty()) {
+                        e->blocksNote = "applying bio blocks...";
+                    }
+                    if (result.ok) {
+                        logs::info("commit: {} -> {}"sv, name, result.note);
+                    } else {
+                        logs::error("commit: {} failed - {}"sv, name, result.note);
+                    }
                 }
+            }
+
+            // Blocks only ride a commit that landed: a bio that failed to
+            // write would leave its blocks describing nothing.
+            if (result.ok && !blocks.empty()) {
+                SeverBio::Apply(refFormID, std::move(blocks),
+                                [refFormID](const SeverBio::ApplyResult& a_result) {
+                                    std::lock_guard lock{ g_mutex };
+                                    if (Entry* e = FindLocked(refFormID)) {
+                                        e->blocksNote = a_result.Describe();
+                                    }
+                                });
             }
         } }.detach();
 

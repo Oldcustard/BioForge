@@ -7,13 +7,19 @@
 #include "SKSEMenuFramework.h"
 
 #include "UI.h"
+#include "BlockRules.h"
 #include "Config.h"
+#include "ContentLibrary.h"
 #include "Generator.h"
 #include "RegionDigest.h"
 #include "ScopeSelector.h"
+#include "SeverBio.h"
 #include "SkyrimNetAPI.h"
 #include "SkyrimNetWeb.h"
 #include "StagingStore.h"
+
+#include <map>
+#include <mutex>
 
 namespace BioForge::UI
 {
@@ -21,6 +27,173 @@ namespace BioForge::UI
     {
         std::vector<Candidate> g_results;
         bool                   g_hasScanned = false;
+
+        // --- bio blocks ---------------------------------------------------
+        //
+        // A plan per scanned NPC, rebuilt only when something it depends on
+        // moved: the catalog, what anyone carries, the reroll salt, or the
+        // settings. Building one reads factions and race, which is cheap,
+        // but per row per frame is still silly.
+        struct CachedPlan
+        {
+            BlockRules::Plan plan;
+            std::uint32_t    catalogVersion{};
+            std::uint32_t    appliedVersion{};
+            std::uint32_t    salt{};
+            Config::Settings settings{};
+        };
+        std::map<std::uint32_t, CachedPlan>  g_plans;
+
+        // An existing bio's text, for the rules' `evidence` words. Read once
+        // per scan; the bio does not change under a scan.
+        std::map<std::uint32_t, std::string> g_bioText;
+
+        // "Add blocks" outcomes, written by a VM-thread callback.
+        std::mutex                           g_addMutex;
+        std::map<std::uint32_t, std::string> g_addNotes;
+
+        bool BlocksUsable()
+        {
+            return Config::Get().blocksEnabled && BlockRules::GroupCount() > 0 &&
+                   SeverBio::GetStatus() == SeverBio::Status::Ready;
+        }
+
+        const BlockRules::Plan* PlanFor(const Candidate& a_candidate)
+        {
+            if (!BlocksUsable()) {
+                return nullptr;
+            }
+            const auto catalog = SeverBio::CatalogVersion();
+            const auto applied = SeverBio::AppliedVersion();
+            const auto salt    = BlockRules::Salt(a_candidate.refFormID);
+
+            auto& cached = g_plans[a_candidate.refFormID];
+            const bool fresh = cached.catalogVersion == catalog && cached.appliedVersion == applied &&
+                               cached.salt == salt && cached.settings == Config::Get() &&
+                               cached.plan.catalogReady;
+            if (!fresh) {
+                auto* actor = RE::TESForm::LookupByID<RE::Actor>(a_candidate.refFormID);
+                if (!actor) {
+                    return nullptr;
+                }
+                const auto text = g_bioText.find(a_candidate.refFormID);
+                cached.plan = BlockRules::Pick(actor,
+                                               text == g_bioText.end() ? std::string_view{}
+                                                                       : std::string_view{ text->second },
+                                               a_candidate.IsGap());
+                cached.catalogVersion = catalog;
+                cached.appliedVersion = applied;
+                cached.salt           = salt;
+                cached.settings       = Config::Get();
+            }
+            return &cached.plan;
+        }
+
+        void AddBlocks(const Candidate& a_candidate, const BlockRules::Plan& a_plan)
+        {
+            std::vector<SeverBio::ApplyItem> items;
+            for (const auto& c : a_plan.ToApply()) {
+                items.push_back(SeverBio::ApplyItem{ c.key, c.tabs });
+            }
+            if (items.empty()) {
+                return;
+            }
+            {
+                std::lock_guard lock{ g_addMutex };
+                g_addNotes[a_candidate.refFormID] = "adding...";
+            }
+            logs::info("blocks: adding {} block(s) to {} ({:08X})"sv, items.size(),
+                       a_candidate.name, a_candidate.refFormID);
+            SeverBio::Apply(a_candidate.refFormID, std::move(items),
+                            [ref = a_candidate.refFormID](const SeverBio::ApplyResult& a_result) {
+                                std::lock_guard lock{ g_addMutex };
+                                g_addNotes[ref] = a_result.Describe();
+                            });
+        }
+
+        std::string AddNoteFor(std::uint32_t a_refFormID)
+        {
+            std::lock_guard lock{ g_addMutex };
+            const auto      it = g_addNotes.find(a_refFormID);
+            return it == g_addNotes.end() ? std::string{} : it->second;
+        }
+
+        // After a scan: what each NPC carries (async), and the text of the
+        // bios that exist (for evidence matching).
+        void PrepareBlocks()
+        {
+            g_plans.clear();
+            g_bioText.clear();
+            if (!BlocksUsable()) {
+                return;
+            }
+
+            ContentLibrary::Index library;
+            library.Build();
+            for (const auto& c : g_results) {
+                SeverBio::RefreshApplied(c.refFormID);
+                if (!c.IsGap()) {
+                    if (const auto* bio = library.Find(c.wouldWriteAs)) {
+                        g_bioText[c.refFormID] = ContentLibrary::ReadBioFile(bio->path);
+                    }
+                }
+            }
+        }
+
+        // "Talos Worshiper*, Spiders" - facts starred, carried in brackets.
+        std::string PlanSummary(const BlockRules::Plan& a_plan, bool a_forGeneration)
+        {
+            std::string out;
+            const auto  add = [&](const std::string& a_text) {
+                out += (out.empty() ? "" : ", ");
+                out += a_text;
+            };
+            for (const auto& c : a_plan.facts) {
+                add(BlockRules::ShortTitle(c.title) + "*");
+            }
+            for (const auto& c : a_plan.flavour) {
+                add(BlockRules::ShortTitle(c.title) + (a_forGeneration ? "?" : ""));
+            }
+            if (out.empty()) {
+                out = a_forGeneration && !a_plan.menus.empty() ? "(model decides)" : "-";
+            }
+            return out;
+        }
+
+        void PlanTooltip(const BlockRules::Plan& a_plan, bool a_forGeneration,
+                         const std::string& a_note)
+        {
+            if (!ImGuiMCP::BeginTooltip()) {
+                return;
+            }
+            if (!a_plan.appliedKnown) {
+                ImGuiMCP::TextDisabled("(still reading what they already carry)");
+            }
+            for (const auto& c : a_plan.carried) {
+                ImGuiMCP::Text("has     %s  (%s)", c.title.c_str(), c.source.c_str());
+            }
+            for (const auto& c : a_plan.facts) {
+                ImGuiMCP::Text("fact    %s  (%s)", c.title.c_str(), c.source.c_str());
+            }
+            for (const auto& c : a_plan.flavour) {
+                ImGuiMCP::Text("%s %s  (%s)", a_forGeneration ? "default" : "flavour",
+                               c.title.c_str(), c.source.c_str());
+            }
+            if (a_forGeneration && !a_plan.menus.empty()) {
+                ImGuiMCP::TextDisabled(
+                    "%zu open group(s): the bio's model keeps a default or picks another\n"
+                    "option from the evidence (up to %d flavour block(s) in all).",
+                    a_plan.menus.size(), a_plan.maxFlavour);
+            }
+            if (a_plan.Empty() && a_plan.carried.empty() && a_plan.menus.empty()) {
+                ImGuiMCP::TextDisabled("No rule applies to this NPC.");
+            }
+            if (!a_note.empty()) {
+                ImGuiMCP::Separator();
+                ImGuiMCP::Text("%s", a_note.c_str());
+            }
+            ImGuiMCP::EndTooltip();
+        }
 
         // Where the scan was taken, so it can be dropped once the player has
         // left the ground it describes. What counts as "left" depends on
@@ -101,6 +274,31 @@ namespace BioForge::UI
                     ImGuiMCP::SetTooltip(
                         "BioForge writes bios through the dashboard's own API.\n"
                         "Enable the web server in SkyrimNet's settings to commit.");
+                }
+            }
+
+            // SeverActions bio blocks: one line, because whether they are on
+            // decides what the Blocks column and the commit will do.
+            if (Config::Get().blocksEnabled) {
+                const auto status = SeverBio::GetStatus();
+                if (status == SeverBio::Status::Ready) {
+                    ImGuiMCP::TextDisabled("Bio blocks: SeverActions API v%d, %zu applicable, %zu rule group(s)%s",
+                                           SeverBio::Version(), SeverBio::Catalog().size(),
+                                           BlockRules::GroupCount(),
+                                           SeverBio::CatalogReady() ? "" : " (reading library...)");
+                } else {
+                    ImGuiMCP::TextDisabled("Bio blocks: %s", SeverBio::StatusText());
+                }
+                if (status != SeverBio::Status::Probing) {
+                    ImGuiMCP::SameLine();
+                    if (ImGuiMCP::SmallButton("Re-check")) {
+                        SeverBio::Probe();
+                    }
+                    if (ImGuiMCP::IsItemHovered()) {
+                        ImGuiMCP::SetTooltip(
+                            "Ask SeverActions again for its Bio Blocks library - after\n"
+                            "adding a pack or a block on its Bio Blocks page.");
+                    }
                 }
             }
 
@@ -260,7 +458,9 @@ namespace BioForge::UI
 
             constexpr auto flags = ImGuiMCP::ImGuiTableFlags_RowBg | ImGuiMCP::ImGuiTableFlags_Borders |
                                    ImGuiMCP::ImGuiTableFlags_ScrollY;
-            if (!ImGuiMCP::BeginTable("bioforge_results", 7, flags, ImGuiMCP::ImVec2(0.0f, 400.0f))) {
+            const bool blocks = BlocksUsable();
+            if (!ImGuiMCP::BeginTable("bioforge_results", blocks ? 8 : 7, flags,
+                                      ImGuiMCP::ImVec2(0.0f, 400.0f))) {
                 return;
             }
 
@@ -270,7 +470,10 @@ namespace BioForge::UI
             ImGuiMCP::TableSetupColumn("Source plugin");
             ImGuiMCP::TableSetupColumn("Dist");
             ImGuiMCP::TableSetupColumn("Template");
-            ImGuiMCP::TableSetupColumn("Generate");
+            if (blocks) {
+                ImGuiMCP::TableSetupColumn("Blocks");
+            }
+            ImGuiMCP::TableSetupColumn("Action");
             ImGuiMCP::TableHeadersRow();
 
             for (const auto& c : g_results) {
@@ -339,6 +542,40 @@ namespace BioForge::UI
                     }
                 }
 
+                // Bio blocks: what this NPC would get. For a missing bio the
+                // flavour shown is only the default ("?") - the generation
+                // settles it from the evidence. For an existing bio it is
+                // what "Add blocks" will apply.
+                const BlockRules::Plan* plan = blocks ? PlanFor(c) : nullptr;
+                const auto              addNote = blocks ? AddNoteFor(c.refFormID) : std::string{};
+                if (blocks) {
+                    ImGuiMCP::TableNextColumn();
+                    if (!plan) {
+                        ImGuiMCP::TextDisabled("not loaded");
+                    } else {
+                        const auto summary = PlanSummary(*plan, c.IsGap());
+                        if (addNote.empty()) {
+                            ImGuiMCP::Text("%s", summary.c_str());
+                        } else {
+                            ImGuiMCP::TextDisabled("%s", addNote.c_str());
+                        }
+                        if (ImGuiMCP::IsItemHovered()) {
+                            PlanTooltip(*plan, c.IsGap(), addNote);
+                        }
+                        const bool rollable = !plan->flavour.empty() || !plan->menus.empty();
+                        if (rollable) {
+                            ImGuiMCP::SameLine();
+                            if (ImGuiMCP::SmallButton("Reroll")) {
+                                BlockRules::Reroll(c.refFormID);
+                            }
+                            if (ImGuiMCP::IsItemHovered()) {
+                                ImGuiMCP::SetTooltip("Roll this NPC's flavour blocks again.\n"
+                                                     "Facts (*) follow from game data and stay.");
+                            }
+                        }
+                    }
+                }
+
                 ImGuiMCP::TableNextColumn();
                 if (IsBusy(c.refFormID, a_staged)) {
                     ImGuiMCP::TextDisabled("working...");
@@ -354,6 +591,22 @@ namespace BioForge::UI
                     }
                 } else if (ImGuiMCP::Button("Generate")) {
                     Generator::Generate(c, g_results);
+                }
+
+                // A bio exists: blocks can still be added beside it, with no
+                // LLM call - the rules (and their evidence words, matched
+                // against that bio) decide.
+                if (!c.IsGap() && plan && !plan->Empty() && !IsBusy(c.refFormID, a_staged)) {
+                    ImGuiMCP::SameLine();
+                    if (ImGuiMCP::Button("Add blocks")) {
+                        AddBlocks(c, *plan);
+                    }
+                    if (ImGuiMCP::IsItemHovered()) {
+                        ImGuiMCP::SetTooltip(
+                            "Apply the blocks in the Blocks column through SeverActions.\n"
+                            "No LLM call: the bio stays as it is, and the blocks render\n"
+                            "beside it. Remove any of them on SeverActions' Bio Blocks page.");
+                    }
                 }
 
                 ImGuiMCP::PopID();
@@ -428,6 +681,24 @@ namespace BioForge::UI
                            sel->committed ? "  (committed)" : "");
             if (!sel->note.empty()) {
                 ImGuiMCP::TextWrapped("%s", sel->note.c_str());
+            }
+            // The blocks commit will apply, and why each is there.
+            if (!sel->blocks.empty()) {
+                std::string line = "Bio blocks: ";
+                for (std::size_t i = 0; i < sel->blocks.size(); ++i) {
+                    line += (i ? ", " : "");
+                    line += BlockRules::ShortTitle(sel->blocks[i].title);
+                }
+                ImGuiMCP::TextWrapped("%s", line.c_str());
+                if (ImGuiMCP::IsItemHovered() && ImGuiMCP::BeginTooltip()) {
+                    for (const auto& b : sel->blocks) {
+                        ImGuiMCP::Text("%s  (%s)", b.title.c_str(), b.source.c_str());
+                    }
+                    ImGuiMCP::EndTooltip();
+                }
+            }
+            if (!sel->blocksNote.empty()) {
+                ImGuiMCP::TextDisabled("%s", sel->blocksNote.c_str());
             }
             ImGuiMCP::Separator();
 
@@ -884,6 +1155,7 @@ namespace BioForge::UI
                 g_scanLocation = RegionDigest::Current().name;
                 g_scanInterior = PlayerInInterior();
                 LogGapReport(g_results);
+                PrepareBlocks();
             }
             ImGuiMCP::SameLine();
             ImGuiMCP::TextDisabled("(also written to BioForge.log)");
@@ -928,6 +1200,36 @@ namespace BioForge::UI
                     ImGuiMCP::TextDisabled(
                         "%zu more cannot be generated: SkyrimNet is not tracking them.",
                         blocked);
+                }
+
+                // The other mode: NPCs that already HAVE a bio get blocks
+                // from the rules alone - no LLM call, nothing regenerated.
+                if (BlocksUsable()) {
+                    std::vector<std::pair<const Candidate*, const BlockRules::Plan*>> withBio;
+                    for (const auto& c : g_results) {
+                        if (c.IsGap() || !AddNoteFor(c.refFormID).empty()) {
+                            continue;   // no bio, or already done this scan
+                        }
+                        if (const auto* plan = PlanFor(c); plan && !plan->Empty()) {
+                            withBio.emplace_back(&c, plan);
+                        }
+                    }
+                    if (!withBio.empty()) {
+                        char label[64]{};
+                        std::snprintf(label, sizeof(label), "Add blocks to %zu NPC(s) with bios",
+                                      withBio.size());
+                        if (ImGuiMCP::Button(label)) {
+                            for (const auto& [c, plan] : withBio) {
+                                AddBlocks(*c, *plan);
+                            }
+                        }
+                        if (ImGuiMCP::IsItemHovered()) {
+                            ImGuiMCP::SetTooltip(
+                                "Apply each row's planned blocks through SeverActions, with no\n"
+                                "LLM call. Hover a row's Blocks cell to see what and why. A\n"
+                                "group the NPC already has a block in is never added to.");
+                        }
+                    }
                 }
             }
 

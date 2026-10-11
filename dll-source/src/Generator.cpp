@@ -3,6 +3,7 @@
 #include "Generator.h"
 #include "Placement.h"
 
+#include "BlockRules.h"
 #include "Config.h"
 #include "ContentLibrary.h"
 #include "Json.h"
@@ -133,7 +134,8 @@ namespace BioForge::Generator
         std::string BuildContext(const Candidate&              a_candidate,
                                  const std::vector<Candidate>& a_roster,
                                  const RosterSummaries&        a_summaries,
-                                 std::string_view              a_regionDigest)
+                                 std::string_view              a_regionDigest,
+                                 const BlockRules::Plan&       a_blocks)
         {
             const auto uuid = SN::FormIDToUUID(a_candidate.refFormID);
             if (uuid == 0) {
@@ -238,7 +240,14 @@ namespace BioForge::Generator
                    // Who matters in this settlement, written once and reused by
                    // every bio generated here. Already bullet lines, so it is
                    // safe to drop straight into a heading's body.
-                   + "\"regionDigest\":\"" + Json::Escape(a_regionDigest) + "\"}";
+                   + "\"regionDigest\":\"" + Json::Escape(a_regionDigest) + "\","
+                   // SeverActions bio blocks: the ones already fixed (carried
+                   // or a fact), and the open groups the model settles from
+                   // the evidence in its `### bio_blocks` section. Both "" when
+                   // blocks are off or SeverActions is absent - the template
+                   // then drops both sections and never asks for the answer.
+                   + "\"bioBlocksFixed\":\"" + Json::Escape(BlockRules::FixedForPrompt(a_blocks)) + "\","
+                   + "\"bioBlocksOpen\":\"" + Json::Escape(BlockRules::MenusForPrompt(a_blocks)) + "\"}";
         }
     }
 
@@ -264,6 +273,9 @@ namespace BioForge::Generator
             // Stamped at assembly on the main thread, like everything else in
             // a Job: Pump also runs from completion callbacks on workers.
             std::string   variant;
+            // The bio-block plan the prompt was given. The completion reads
+            // the model's answer against THIS, never against the world.
+            BlockRules::Plan blocks;
         };
 
         // A staged bio whose relationships block needs re-asking, and the
@@ -313,7 +325,7 @@ namespace BioForge::Generator
                                std::string_view              a_digest);
 
         void OnComplete(Kind a_kind, std::uint32_t a_refFormID, const std::string& a_context,
-                        const char* a_response, int a_success)
+                        const BlockRules::Plan& a_blocks, const char* a_response, int a_success)
         {
             if (a_kind == Kind::Refine) {
                 // A failed refine must never damage what pass one produced.
@@ -345,7 +357,21 @@ namespace BioForge::Generator
                 std::string              bio;
                 std::vector<std::string> missing;
                 Staging::ParseResponse(raw, bio, missing);
-                Staging::RecordGenerated(a_refFormID, a_context, raw, bio, missing);
+
+                // Settle the open block groups from the model's answer. Pure
+                // string work against the job's own plan - nothing here may
+                // look at the world from this worker thread.
+                std::string                    blocksNote;
+                std::vector<BlockRules::Choice> blocks;
+                if (!a_blocks.Empty() || !a_blocks.menus.empty()) {
+                    blocks = BlockRules::Resolve(
+                        a_blocks, Staging::ExtractSection(raw, Staging::kBioBlocksSection),
+                        blocksNote);
+                    logs::info("blocks: {:08X} - {} block(s){}{}"sv, a_refFormID, blocks.size(),
+                               blocksNote.empty() ? "" : " - ", blocksNote);
+                }
+                Staging::RecordGenerated(a_refFormID, a_context, raw, bio, missing, blocks,
+                                         blocksNote);
             }
 
             {
@@ -383,9 +409,9 @@ namespace BioForge::Generator
                 const bool queued = SN::SendCustomPrompt(
                     job.kind == Kind::Refine ? kRefinePrompt.data() : kPromptName.data(),
                     job.variant.c_str(), job.contextJson.c_str(),
-                    [kind = job.kind, ref = job.refFormID,
-                     ctx = job.contextJson](const char* a_response, int a_success) {
-                        OnComplete(kind, ref, ctx, a_response, a_success);
+                    [kind = job.kind, ref = job.refFormID, ctx = job.contextJson,
+                     plan = job.blocks](const char* a_response, int a_success) {
+                        OnComplete(kind, ref, ctx, plan, a_response, a_success);
                     });
 
                 if (!queued) {
@@ -415,10 +441,20 @@ namespace BioForge::Generator
                       const RosterSummaries& a_summaries, std::string_view a_regionDigest,
                       Job& a_job)
         {
-            const auto context = BuildContext(a_candidate, a_roster, a_summaries, a_regionDigest);
+            // Bio blocks are picked here, on the main thread, because the
+            // rules read factions, race and voice. Facts are fixed now; the
+            // flavour roll is only a default the model may override.
+            BlockRules::Plan blocks;
+            if (auto* actor = RE::TESForm::LookupByID<RE::Actor>(a_candidate.refFormID)) {
+                blocks = BlockRules::Pick(actor, {}, true);
+            }
+
+            const auto context =
+                BuildContext(a_candidate, a_roster, a_summaries, a_regionDigest, blocks);
             if (context.empty()) {
                 return false;
             }
+            a_job.blocks = std::move(blocks);
 
             a_job.refFormID   = a_candidate.refFormID;
             a_job.name        = a_candidate.name;

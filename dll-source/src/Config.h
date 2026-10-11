@@ -75,6 +75,21 @@ namespace BioForge::Config
         // 4k cap, tight for a ten-block bio - until the player configures it.
         bool ownVariant = false;
 
+        // SeverActions bio blocks (block_rules.ini). Off hides the whole
+        // feature: no plan, no menus in the prompt, nothing applied.
+        bool blocksEnabled = true;
+
+        // How many FLAVOUR blocks (rolled or evidence-led) one NPC may get.
+        // Facts do not count: they follow from game data. Every block costs
+        // prompt tokens on every line the NPC speaks, so keep this small.
+        int blocksMaxFlavour = 2;
+
+        // Intimate blocks (SeverActions' Adult pack: sexual behaviour, kinks,
+        // dislikes) are opt-in, never for a child, and roll on their own
+        // chance rather than the rules file's.
+        bool blocksIntimate       = false;
+        int  blocksIntimateChance = 30;
+
         // So Refresh() can tell whether anything actually moved.
         bool operator==(const Settings&) const = default;
     };

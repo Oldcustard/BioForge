@@ -77,12 +77,41 @@ every bio generated there.
   **Generate** never builds one, but uses one if it's already there.
 - 🛠️ Panel buttons: **Build digest**, **View digest**, **Rebuild**.
 
+## 🧩 Bio blocks (SeverActions)
+
+With [SeverActions](https://github.com/Severause/SeverActions) installed (Bio Blocks API
+v4), BioForge also gives NPCs SeverActions **bio blocks**: short traits like a religion,
+a dislike, a phobia, a vice or a temperament, shown beside the bio.
+
+- ✅ **Facts come from game data.** A Vigilant of Stendarr worships Stendarr, a
+  Stormcloak dislikes the Empire, someone with the drunk voice is an alcoholic.
+- 🎲 **Flavour is a roll**, for variety, capped at two per NPC by default. The roll is
+  stable per NPC; **Reroll** in the Blocks column rolls again.
+- 🔎 **New bios settle flavour from the evidence.** The generating model sees each open
+  trait as a short menu with the roll as its default, and changes it only when the NPC's
+  own evidence points elsewhere: a priestess whose dialogue keeps invoking Dibella gets
+  Dibella. The bio is then written to match. This adds no extra LLM call.
+- 📌 **Applied when you commit**, never before. The reader shows which blocks a bio will
+  bring and why.
+- ➕ **NPCs that already have a bio** get an **Add blocks** button (and a batch button).
+  That makes no LLM call: the rules decide, and words in the existing bio count as
+  evidence.
+- 🤝 **Your choices stand.** BioForge never adds to a group (say, Religion) the NPC already
+  has a block in, from you or a faction rule. Remove any block on SeverActions' Bio Blocks
+  page.
+- 🔞 **Intimate blocks** (SeverActions' Adult pack) are off by default, never given to
+  children, and the pack's most extreme entries are never handed out.
+- ✏️ The rules live in `SKSE/Plugins/BioForge/block_rules.ini`, a commented text file
+  you can edit. Without SeverActions, none of this appears.
+
 ## 📦 Requirements
 
 - [SkyrimNet](https://goncalo22.github.io/SkyrimNet-GamePlugin/) **Beta 25+** (API v10+)
 - SKSE and Address Library for SKSE Plugins
 - [SKSE Menu Framework](https://www.nexusmods.com/skyrimspecialedition/mods/120352) v3,
   which provides the whole UI (BioForge adds no hotkey of its own)
+- *Optional:* [SeverActions](https://github.com/Severause/SeverActions) with Bio Blocks
+  API v4, for bio blocks
 
 > ⬆️ **Upgrading from Beta 24?** Old committed bios in
 > `SKSE/Plugins/SkyrimNet/prompts/characters/` are no longer read. Use SkyrimNet's
@@ -110,6 +139,10 @@ with no restart.
 | Use regional digests | `digest.enabled` | `true` |
 | Build digest before a batch | `digest.autoBuild` | `true` |
 | Bios harvested per digest | `digest.maxCandidates` | `120` |
+| Use bio blocks | `blocks.enabled` | `true` |
+| Flavour blocks per NPC | `blocks.maxFlavour` | `2` |
+| Intimate blocks | `blocks.intimate` | `false` |
+| Intimate block chance (%) | `blocks.intimateChance` | `30` |
 
 - 🐢 Lower `generate.maxConcurrent` if your provider rate-limits you. Raise it for a local
   model.
