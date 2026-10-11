@@ -147,7 +147,7 @@ with no restart.
 | Bios harvested per digest | `digest.maxCandidates` | `120` |
 | Use bio blocks | `blocks.enabled` | `true` |
 | Intimate blocks | `blocks.intimate` | `false` |
-| Intimate block chance (%) | `blocks.intimateChance` | `30` |
+| Intimate block chance (%) | `blocks.intimateChance` | `50` |
 
 - 🐢 Lower `generate.maxConcurrent` if your provider rate-limits you. Raise it for a local
   model.

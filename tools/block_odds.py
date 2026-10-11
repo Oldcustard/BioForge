@@ -151,7 +151,7 @@ def main():
     ap.add_argument("--child", action="store_true")
     ap.add_argument("--female", action="store_true")
     ap.add_argument("--intimate", action="store_true")
-    ap.add_argument("--intimate-chance", type=int, default=30)
+    ap.add_argument("--intimate-chance", type=int, default=50)
     ap.add_argument("--group", help="list only this group")
     ap.add_argument("--match", help="regex over keys: odds of getting ANY matching block")
     ap.add_argument("--rules", type=Path, default=RULES)

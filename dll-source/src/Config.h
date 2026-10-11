@@ -83,7 +83,7 @@ namespace BioForge::Config
         // dislikes) are opt-in, never for a child, and roll on their own
         // chance rather than the rules file's.
         bool blocksIntimate       = false;
-        int  blocksIntimateChance = 30;
+        int  blocksIntimateChance = 50;
 
         // So Refresh() can tell whether anything actually moved.
         bool operator==(const Settings&) const = default;
