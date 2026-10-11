@@ -85,17 +85,19 @@ a dislike, a phobia, a vice or a temperament, shown beside the bio.
 
 - ✅ **Facts come from game data.** A Vigilant of Stendarr worships Stendarr, a
   Stormcloak dislikes the Empire, someone with the drunk voice is an alcoholic.
-- 🎲 **Flavour is a roll**, for variety, capped at two per NPC by default. The roll is
-  stable per NPC; **Reroll** in the Blocks column rolls again.
-- 🔎 **New bios settle flavour from the evidence.** The generating model sees each open
-  trait as a short menu with the roll as its default, and changes it only when the NPC's
-  own evidence points elsewhere: a priestess whose dialogue keeps invoking Dibella gets
-  Dibella. The bio is then written to match. This adds no extra LLM call.
-- 📌 **Applied when you commit**, never before. The reader shows which blocks a bio will
-  bring and why.
-- ➕ **NPCs that already have a bio** get an **Add blocks** button (and a batch button).
-  That makes no LLM call: the rules decide, and words in the existing bio count as
-  evidence.
+- 🎲 **Flavour is rolled first**, for variety, capped at two per NPC by default. The roll
+  is stable per NPC; **Reroll** in the Blocks column rolls again.
+- 🔎 **Then a model checks the rolls against the evidence.** It keeps each roll unless the
+  NPC's evidence contradicts it, in which case it replaces or drops it. It adds a trait
+  from a group that didn't roll only when the evidence names it outright: a priestess
+  whose dialogue keeps invoking Dibella gets Dibella.
+  - For a **new bio**, this happens inside the generation (no extra call), and the bio
+    is written to match.
+  - For an **NPC that already has a bio**, **Review blocks** (per row, or a batch
+    button) makes one small call against that bio. The result goes into the review list,
+    and the bio itself is never changed.
+- 📌 **Applied when you commit**, never before. The reader shows which blocks will be
+  applied and why: rolled, replaced or added, with the model's reason.
 - 🤝 **Your choices stand.** BioForge never adds to a group (say, Religion) the NPC already
   has a block in, from you or a faction rule. Remove any block on SeverActions' Bio Blocks
   page.
@@ -104,7 +106,8 @@ a dislike, a phobia, a vice or a temperament, shown beside the bio.
 - 🎭 **Anything can happen, rarely.** Every block is reachable: the odd secret Daedra
   worshipper or cowardly guard turns up, just not often.
 - ✏️ The rules live in `SKSE/Plugins/BioForge/block_rules.ini`, a commented text file
-  you can edit. Without SeverActions, none of this appears.
+  you can edit. `tools/block_odds.py` (in the source repo) prints how often each block
+  comes up for a given kind of NPC. Without SeverActions, none of this appears.
 
 ## 📦 Requirements
 
@@ -206,10 +209,12 @@ dll-source/src/
   RegionDigest        per-settlement reference sheet
   StagingStore        response parsing, staging, commit
   SkyrimNetAPI / Web  SkyrimNet's C API and its loopback content API
+  BlockRules          bio-block rules: facts, rolls, the model's review
+  SeverBio            SeverActions' bio blocks API, through the Papyrus VM
   Config              settings from SkyrimNet's config store
 dll-source/include/   vendored SkyrimNet and SMF headers
 mod-root/             shipped verbatim into the mod
-tools/                prompt and ranking probes
+tools/                prompt, ranking and block-odds probes
 ```
 
 ## 📄 License

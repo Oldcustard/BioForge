@@ -124,20 +124,21 @@ schema:
     # ---- Bio blocks (SeverActions) -----------------------------------------
     # SeverActions' Bio Blocks are short traits (religion, dislikes, phobias,
     # vices, temperament...) rendered beside an NPC's bio. BioForge picks them
-    # from SKSE/Plugins/BioForge/block_rules.ini and applies them through
-    # SeverActions' API - on commit for a new bio, or with "Add blocks" for an
-    # NPC that already has one. Needs SeverActions with Bio Blocks API v4.
+    # from SKSE/Plugins/BioForge/block_rules.ini, has a model review the rolls
+    # against the evidence, and applies them through SeverActions' API on
+    # commit - for a new bio, or after "Review blocks" for an NPC that already
+    # has one. Needs SeverActions with Bio Blocks API v4.
     - name: "Use Bio Blocks"
       path: "blocks.enabled"
       type: "bool"
-      description: "Give NPCs SeverActions bio blocks alongside their bios. Facts come from game data (a Vigilant of Stendarr worships Stendarr, a Stormcloak dislikes the Empire); flavour is a random roll for variety, which the bio's own generation may change when the NPC's evidence points elsewhere. Blocks are applied when you commit a new bio, or with Add blocks for an NPC who already has one, and can be removed on SeverActions' Bio Blocks page. Needs SeverActions installed; without it this does nothing."
+      description: "Give NPCs SeverActions bio blocks alongside their bios. Facts come from game data (a Vigilant of Stendarr worships Stendarr, a Stormcloak dislikes the Empire); flavour is rolled at random for variety, then a model checks the rolls against the NPC's evidence - keeping them unless contradicted, and adding one only where the evidence names it. For a new bio that check rides the generation; for an NPC who already has a bio, Review blocks makes one small call. Nothing is applied until you commit, and blocks can be removed on SeverActions' Bio Blocks page. Needs SeverActions installed; without it this does nothing."
       defaultValue: true
       category: "Bio blocks"
 
     - name: "Flavour Blocks Per NPC"
       path: "blocks.maxFlavour"
       type: "int"
-      description: "The most flavour blocks (rolled or chosen from the evidence) one NPC can get. Facts from game data do not count toward this. Every block is read each time the NPC speaks, so a small number keeps them cheap and keeps the bio the main voice."
+      description: "The most flavour blocks (rolled, or added from the evidence) one NPC can get. Facts from game data do not count toward this. Every block is read each time the NPC speaks, so a small number keeps them cheap and keeps the bio the main voice."
       defaultValue: 2
       min: 0
       max: 5

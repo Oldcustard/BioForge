@@ -44,14 +44,6 @@ namespace BioForge::UI
         };
         std::map<std::uint32_t, CachedPlan>  g_plans;
 
-        // An existing bio's text, for the rules' `evidence` words. Read once
-        // per scan; the bio does not change under a scan.
-        std::map<std::uint32_t, std::string> g_bioText;
-
-        // "Add blocks" outcomes, written by a VM-thread callback.
-        std::mutex                           g_addMutex;
-        std::map<std::uint32_t, std::string> g_addNotes;
-
         bool BlocksUsable()
         {
             return Config::Get().blocksEnabled && BlockRules::GroupCount() > 0 &&
@@ -76,11 +68,7 @@ namespace BioForge::UI
                 if (!actor) {
                     return nullptr;
                 }
-                const auto text = g_bioText.find(a_candidate.refFormID);
-                cached.plan = BlockRules::Pick(actor,
-                                               text == g_bioText.end() ? std::string_view{}
-                                                                       : std::string_view{ text->second },
-                                               a_candidate.IsGap());
+                cached.plan           = BlockRules::Pick(actor);
                 cached.catalogVersion = catalog;
                 cached.appliedVersion = applied;
                 cached.salt           = salt;
@@ -89,59 +77,29 @@ namespace BioForge::UI
             return &cached.plan;
         }
 
-        void AddBlocks(const Candidate& a_candidate, const BlockRules::Plan& a_plan)
-        {
-            std::vector<SeverBio::ApplyItem> items;
-            for (const auto& c : a_plan.ToApply()) {
-                items.push_back(SeverBio::ApplyItem{ c.key, c.tabs });
-            }
-            if (items.empty()) {
-                return;
-            }
-            {
-                std::lock_guard lock{ g_addMutex };
-                g_addNotes[a_candidate.refFormID] = "adding...";
-            }
-            logs::info("blocks: adding {} block(s) to {} ({:08X})"sv, items.size(),
-                       a_candidate.name, a_candidate.refFormID);
-            SeverBio::Apply(a_candidate.refFormID, std::move(items),
-                            [ref = a_candidate.refFormID](const SeverBio::ApplyResult& a_result) {
-                                std::lock_guard lock{ g_addMutex };
-                                g_addNotes[ref] = a_result.Describe();
-                            });
-        }
-
-        std::string AddNoteFor(std::uint32_t a_refFormID)
-        {
-            std::lock_guard lock{ g_addMutex };
-            const auto      it = g_addNotes.find(a_refFormID);
-            return it == g_addNotes.end() ? std::string{} : it->second;
-        }
-
-        // After a scan: what each NPC carries (async), and the text of the
-        // bios that exist (for evidence matching).
+        // After a scan: what each NPC carries already. Async - the Blocks
+        // column fills in as the answers land.
         void PrepareBlocks()
         {
             g_plans.clear();
-            g_bioText.clear();
             if (!BlocksUsable()) {
                 return;
             }
-
-            ContentLibrary::Index library;
-            library.Build();
             for (const auto& c : g_results) {
                 SeverBio::RefreshApplied(c.refFormID);
-                if (!c.IsGap()) {
-                    if (const auto* bio = library.Find(c.wouldWriteAs)) {
-                        g_bioText[c.refFormID] = ContentLibrary::ReadBioFile(bio->path);
-                    }
-                }
             }
         }
 
-        // "Talos Worshiper*, Spiders" - facts starred, carried in brackets.
-        std::string PlanSummary(const BlockRules::Plan& a_plan, bool a_forGeneration)
+        // Something a blocks review could do for this NPC: a fact to stage,
+        // or an open group for the model to roll into or add to.
+        bool Reviewable(const BlockRules::Plan& a_plan)
+        {
+            return !a_plan.Empty() || (!a_plan.menus.empty() && a_plan.maxFlavour > 0);
+        }
+
+        // "Talos Worshiper*, Spiders?" - facts starred; rolls marked "?"
+        // because a model still reviews them against the evidence.
+        std::string PlanSummary(const BlockRules::Plan& a_plan)
         {
             std::string out;
             const auto  add = [&](const std::string& a_text) {
@@ -152,16 +110,15 @@ namespace BioForge::UI
                 add(BlockRules::ShortTitle(c.title) + "*");
             }
             for (const auto& c : a_plan.flavour) {
-                add(BlockRules::ShortTitle(c.title) + (a_forGeneration ? "?" : ""));
+                add(BlockRules::ShortTitle(c.title) + "?");
             }
             if (out.empty()) {
-                out = a_forGeneration && !a_plan.menus.empty() ? "(model decides)" : "-";
+                out = "-";
             }
             return out;
         }
 
-        void PlanTooltip(const BlockRules::Plan& a_plan, bool a_forGeneration,
-                         const std::string& a_note)
+        void PlanTooltip(const BlockRules::Plan& a_plan)
         {
             if (!ImGuiMCP::BeginTooltip()) {
                 return;
@@ -176,21 +133,17 @@ namespace BioForge::UI
                 ImGuiMCP::Text("fact    %s  (%s)", c.title.c_str(), c.source.c_str());
             }
             for (const auto& c : a_plan.flavour) {
-                ImGuiMCP::Text("%s %s  (%s)", a_forGeneration ? "default" : "flavour",
-                               c.title.c_str(), c.source.c_str());
+                ImGuiMCP::Text("rolled  %s", c.title.c_str());
             }
-            if (a_forGeneration && !a_plan.menus.empty()) {
+            if (!a_plan.menus.empty() && a_plan.maxFlavour > 0) {
                 ImGuiMCP::TextDisabled(
-                    "%zu open group(s): the bio's model keeps a default or picks another\n"
-                    "option from the evidence (up to %d flavour block(s) in all).",
+                    "A model reviews the rolls against the evidence: it keeps each one\n"
+                    "unless the evidence contradicts it, and adds one of the %zu open\n"
+                    "group(s) only where the evidence names it (%d flavour block(s) at most).",
                     a_plan.menus.size(), a_plan.maxFlavour);
             }
             if (a_plan.Empty() && a_plan.carried.empty() && a_plan.menus.empty()) {
                 ImGuiMCP::TextDisabled("No rule applies to this NPC.");
-            }
-            if (!a_note.empty()) {
-                ImGuiMCP::Separator();
-                ImGuiMCP::Text("%s", a_note.c_str());
             }
             ImGuiMCP::EndTooltip();
         }
@@ -542,25 +495,20 @@ namespace BioForge::UI
                     }
                 }
 
-                // Bio blocks: what this NPC would get. For a missing bio the
-                // flavour shown is only the default ("?") - the generation
-                // settles it from the evidence. For an existing bio it is
-                // what "Add blocks" will apply.
+                // Bio blocks: what this NPC would get. The rolls ("?") are
+                // reviewed by a model before anything is applied - inside the
+                // generation for a missing bio, by Review blocks for one that
+                // exists.
                 const BlockRules::Plan* plan = blocks ? PlanFor(c) : nullptr;
-                const auto              addNote = blocks ? AddNoteFor(c.refFormID) : std::string{};
                 if (blocks) {
                     ImGuiMCP::TableNextColumn();
                     if (!plan) {
                         ImGuiMCP::TextDisabled("not loaded");
                     } else {
-                        const auto summary = PlanSummary(*plan, c.IsGap());
-                        if (addNote.empty()) {
-                            ImGuiMCP::Text("%s", summary.c_str());
-                        } else {
-                            ImGuiMCP::TextDisabled("%s", addNote.c_str());
-                        }
+                        const auto summary = PlanSummary(*plan);
+                        ImGuiMCP::Text("%s", summary.c_str());
                         if (ImGuiMCP::IsItemHovered()) {
-                            PlanTooltip(*plan, c.IsGap(), addNote);
+                            PlanTooltip(*plan);
                         }
                         const bool rollable = !plan->flavour.empty() || !plan->menus.empty();
                         if (rollable) {
@@ -593,19 +541,19 @@ namespace BioForge::UI
                     Generator::Generate(c, g_results);
                 }
 
-                // A bio exists: blocks can still be added beside it, with no
-                // LLM call - the rules (and their evidence words, matched
-                // against that bio) decide.
-                if (!c.IsGap() && plan && !plan->Empty() && !IsBusy(c.refFormID, a_staged)) {
+                // A bio exists: blocks can still be added beside it. A small
+                // LLM call reviews the rolls against that bio, and the result
+                // waits in the review list like a generated bio does.
+                if (!c.IsGap() && plan && Reviewable(*plan) && !IsBusy(c.refFormID, a_staged)) {
                     ImGuiMCP::SameLine();
-                    if (ImGuiMCP::Button("Add blocks")) {
-                        AddBlocks(c, *plan);
+                    if (ImGuiMCP::Button("Review blocks")) {
+                        Generator::ReviewBlocks({ c });
                     }
                     if (ImGuiMCP::IsItemHovered()) {
                         ImGuiMCP::SetTooltip(
-                            "Apply the blocks in the Blocks column through SeverActions.\n"
-                            "No LLM call: the bio stays as it is, and the blocks render\n"
-                            "beside it. Remove any of them on SeverActions' Bio Blocks page.");
+                            "Check this NPC's rolled blocks against their existing bio (one\n"
+                            "small LLM call), then stage the result for review. The bio is\n"
+                            "never changed; committing applies the blocks through SeverActions.");
                     }
                 }
 
@@ -632,6 +580,16 @@ namespace BioForge::UI
                                   : Staging::ReadStagedBio(a_entry);
             g_bufferFor   = a_entry.refFormID;
             g_bufferIsRaw = a_raw;
+        }
+
+        // A blocks review commits nothing to the content library - it only
+        // applies blocks - so its button says so.
+        const char* CommitLabel(const Staging::Entry& a_entry)
+        {
+            if (a_entry.blocksOnly) {
+                return a_entry.committed ? "Apply again" : "Apply blocks";
+            }
+            return a_entry.committed ? "Commit again" : "Commit";
         }
 
         const char* StateLabel(Staging::State a_state)
@@ -677,8 +635,13 @@ namespace BioForge::UI
                 return;
             }
 
-            ImGuiMCP::Text("%s  ->  %s%s", sel->name.c_str(), sel->fileName.c_str(),
-                           sel->committed ? "  (committed)" : "");
+            if (sel->blocksOnly) {
+                ImGuiMCP::Text("%s  ->  bio blocks only, beside the existing bio%s",
+                               sel->name.c_str(), sel->committed ? "  (applied)" : "");
+            } else {
+                ImGuiMCP::Text("%s  ->  %s%s", sel->name.c_str(), sel->fileName.c_str(),
+                               sel->committed ? "  (committed)" : "");
+            }
             if (!sel->note.empty()) {
                 ImGuiMCP::TextWrapped("%s", sel->note.c_str());
             }
@@ -703,8 +666,10 @@ namespace BioForge::UI
             ImGuiMCP::Separator();
 
             // A failed parse has no bio, so show what the model actually said -
-            // that is the only way to see why it failed.
-            const bool wantRaw = g_showRaw || sel->state == Staging::State::Failed;
+            // that is the only way to see why it failed. A blocks review has
+            // no bio either: its reply (with the model's reasons) IS the text.
+            const bool wantRaw =
+                g_showRaw || sel->state == Staging::State::Failed || sel->blocksOnly;
             if (g_bufferFor != sel->refFormID || g_bufferIsRaw != wantRaw) {
                 FillReviewBuffer(*sel, wantRaw);
             }
@@ -731,17 +696,21 @@ namespace BioForge::UI
                     ImGuiMCP::EndDisabled();
                     ImGuiMCP::SameLine();
                 } else {
-                    if (ImGuiMCP::Button(sel->committed ? "Commit again" : "Commit")) {
+                    if (ImGuiMCP::Button(CommitLabel(*sel))) {
                         Staging::Commit(*sel);
                     }
                     ImGuiMCP::SameLine();
                 }
             }
 
-            if (ImGuiMCP::Button("Regenerate")) {
+            if (ImGuiMCP::Button(sel->blocksOnly ? "Review again" : "Regenerate")) {
                 for (const auto& c : g_results) {
                     if (c.refFormID == sel->refFormID) {
-                        Generator::Generate(c, g_results);
+                        if (sel->blocksOnly) {
+                            Generator::ReviewBlocks({ c });
+                        } else {
+                            Generator::Generate(c, g_results);
+                        }
                         break;
                     }
                 }
@@ -781,11 +750,13 @@ namespace BioForge::UI
             }
             ImGuiMCP::SameLine();
 
-            if (ImGuiMCP::Button(g_showRaw ? "Show bio" : "Show raw reply")) {
-                g_showRaw   = !g_showRaw;
-                g_bufferFor = 0;
+            if (!sel->blocksOnly) {
+                if (ImGuiMCP::Button(g_showRaw ? "Show bio" : "Show raw reply")) {
+                    g_showRaw   = !g_showRaw;
+                    g_bufferFor = 0;
+                }
+                ImGuiMCP::SameLine();
             }
-            ImGuiMCP::SameLine();
 
             if (ImGuiMCP::Button("Close")) {
                 ImGuiMCP::CloseCurrentPopup();
@@ -899,11 +870,12 @@ namespace BioForge::UI
                     ImGuiMCP::PushID(static_cast<int>(e.refFormID));
 
                     char label[192]{};
-                    std::snprintf(label, sizeof(label), "%-28s %s%s%s%s", e.name.c_str(),
+                    std::snprintf(label, sizeof(label), "%-28s %s%s%s%s%s", e.name.c_str(),
+                                  e.blocksOnly ? "blocks " : "",
                                   StateLabel(e.state),
                                   e.committing ? ", committing" : "",
                                   e.refined ? ", ties revised" : "",
-                                  e.committed ? ", committed" : "");
+                                  e.committed ? (e.blocksOnly ? ", applied" : ", committed") : "");
 
                     if (ImGuiMCP::Selectable(label, e.refFormID == g_selected)) {
                         g_selected = e.refFormID;
@@ -945,7 +917,7 @@ namespace BioForge::UI
                     ImGuiMCP::BeginDisabled(true);
                     ImGuiMCP::Button("Committing...");
                     ImGuiMCP::EndDisabled();
-                } else if (ImGuiMCP::Button(sel->committed ? "Commit again" : "Commit")) {
+                } else if (ImGuiMCP::Button(CommitLabel(*sel))) {
                     Staging::Commit(*sel);
                 }
                 ImGuiMCP::PopID();
@@ -1202,32 +1174,41 @@ namespace BioForge::UI
                         blocked);
                 }
 
-                // The other mode: NPCs that already HAVE a bio get blocks
-                // from the rules alone - no LLM call, nothing regenerated.
+                // The other mode: NPCs that already HAVE a bio get their
+                // blocks reviewed against it - one small call each, staged
+                // for review, nothing regenerated. Anyone already in the
+                // review list is left out, so a second press does not
+                // re-ask for what is waiting to be read.
                 if (BlocksUsable()) {
-                    std::vector<std::pair<const Candidate*, const BlockRules::Plan*>> withBio;
+                    std::vector<Candidate> withBio;
                     for (const auto& c : g_results) {
-                        if (c.IsGap() || !AddNoteFor(c.refFormID).empty()) {
-                            continue;   // no bio, or already done this scan
+                        if (c.IsGap()) {
+                            continue;
                         }
-                        if (const auto* plan = PlanFor(c); plan && !plan->Empty()) {
-                            withBio.emplace_back(&c, plan);
+                        const bool listed =
+                            std::any_of(staged.begin(), staged.end(), [&](const Staging::Entry& e) {
+                                return e.refFormID == c.refFormID;
+                            });
+                        if (listed) {
+                            continue;
+                        }
+                        if (const auto* plan = PlanFor(c); plan && Reviewable(*plan)) {
+                            withBio.push_back(c);
                         }
                     }
                     if (!withBio.empty()) {
                         char label[64]{};
-                        std::snprintf(label, sizeof(label), "Add blocks to %zu NPC(s) with bios",
+                        std::snprintf(label, sizeof(label), "Review blocks for %zu NPC(s) with bios",
                                       withBio.size());
                         if (ImGuiMCP::Button(label)) {
-                            for (const auto& [c, plan] : withBio) {
-                                AddBlocks(*c, *plan);
-                            }
+                            Generator::ReviewBlocks(withBio);
                         }
                         if (ImGuiMCP::IsItemHovered()) {
                             ImGuiMCP::SetTooltip(
-                                "Apply each row's planned blocks through SeverActions, with no\n"
-                                "LLM call. Hover a row's Blocks cell to see what and why. A\n"
-                                "group the NPC already has a block in is never added to.");
+                                "Check each NPC's rolled blocks against their existing bio, one\n"
+                                "small LLM call each, and stage the results for review. Nothing\n"
+                                "is applied until you commit. A group the NPC already has a\n"
+                                "block in is never added to.");
                         }
                     }
                 }

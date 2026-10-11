@@ -21,7 +21,7 @@
 // rule picker read; each call waits about a frame on SeverActions' side.
 //
 // The API guide's one hard rule, kept here: apply ONCE, on the user's own
-// action (a commit, an "Add blocks" press) - never on load, and never in
+// action (a commit, of a bio or of a blocks review) - never on load, and never in
 // reaction to SeverActions' change event.
 namespace BioForge::SeverBio
 {

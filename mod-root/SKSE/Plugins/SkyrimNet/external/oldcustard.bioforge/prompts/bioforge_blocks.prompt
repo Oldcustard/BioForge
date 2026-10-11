@@ -1,0 +1,87 @@
+[ system ]
+{# ===========================================================================
+   BioForge - review rolled SeverActions bio blocks against an EXISTING bio.
+
+   For an NPC who already has a bio. Nothing here writes or changes that bio:
+   the answer only decides which short trait blocks SeverActions shows beside
+   it. Flavour traits were rolled at random FIRST, for variety; this call keeps
+   them unless the bio contradicts them, and adds a trait only where the bio
+   names one outright.
+
+   Context injected by the DLL:
+     subjectName     (string)  their display name
+     subjectRace     (string)  their race, may be ""
+     existingBio     (string)  their bio, block markup flattened to "name: text"
+     bioBlocksFixed  (string)  bullet lines: blocks they carry already or get
+                               from game data (facts). May be ""
+     bioBlocksReview (string)  the rolled traits (each with its options) and
+                               the groups that did not roll. Never "" - the DLL
+                               does not make this call when there is nothing
+                               to review
+
+   Output is ONE `### bio_blocks` section, one line per group answered. The DLL
+   checks every answer against the same lists; anything it cannot read keeps
+   the roll, and the flavour cap is enforced whatever comes back.
+
+   ROLE MARKERS ARE MANDATORY, and every heading needs a guaranteed non-empty
+   body. bioforge_generate.prompt documents both, and the rest of the renderer
+   quirks, in full.
+   =========================================================================== #}
+You are choosing short personality traits to show beside an existing character profile
+in a Skyrim roleplay system. The profile itself is finished and will not change.
+
+Some traits were rolled at random for this character, for variety. Your job is to check
+them against the profile - not to pick the traits that fit best.
+
+# How to decide
+
+- **Keep a rolled trait unless the profile contradicts it.** Contradicts means the two
+  cannot both be true: a devout priestess of Mara rolled as a Namira worshipper, a man
+  described as fearless rolled as cowardly, a teetotaller rolled as a drunk.
+- **Unusual is not a contradiction.** A guard can be a coward; a shopkeeper can secretly
+  worship a Daedric Prince; a cheerful baker can fear the dark. Rare, surprising traits
+  are the point of rolling - they are what make a minor character memorable. If the
+  profile is merely silent on it, keep it.
+- **When a roll is contradicted**, replace it with the option the profile supports, or
+  drop it when no option fits.
+- **Add a trait from a group that did not roll only when the profile names it outright**
+  - a character who prays to Dibella, a man described as drinking himself stupid every
+  night. An option that would merely suit them is not enough; leave the group out.
+- Respect the limit on how many traits there may be. To add one when it is reached,
+  you must drop a rolled trait that the profile contradicts.
+- The traits already shown alongside are settled. Do not repeat or contradict them.
+
+# Output format
+
+Output EXACTLY one section, its `###` heading on its own line, and nothing before or
+after it. No preamble, no markdown fences.
+
+### bio_blocks
+One line per group you answer, using the group names and option numbers from the lists:
+- `group: keep` - keep the rolled trait
+- `group: N (reason)` - replace a roll with option N, or add option N to a group that did
+  not roll; the reason is a few words quoting or pointing at the profile
+- `group: drop (reason)` - remove a rolled trait the profile contradicts
+
+Answer every rolled group. Leave out any group that did not roll and gets nothing.
+
+[ end system ]
+
+[ user ]
+# {{ subjectName }}{% if length(subjectRace) > 0 %} ({{ subjectRace }}){% endif %}
+
+## Their profile
+{% if length(existingBio) > 0 %}{{ existingBio }}
+{% else %}(no profile text could be read)
+{% endif %}
+{% if length(bioBlocksFixed) > 0 %}
+## Traits already shown alongside the profile
+{{ bioBlocksFixed }}
+These are settled.
+{% endif %}
+## Traits to review
+{% if length(bioBlocksReview) > 0 %}{{ bioBlocksReview }}
+{% else %}(nothing to review)
+{% endif %}
+Write the `### bio_blocks` section for {{ subjectName }} now.
+[ end user ]

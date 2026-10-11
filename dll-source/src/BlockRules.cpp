@@ -46,8 +46,7 @@ namespace BioForge::BlockRules
             int                      weight{ 1 };
             std::vector<Cond>        when;
             std::vector<Cond>        unless;
-            std::vector<Cond>        rarely;     // any holds: weight drops to 1
-            std::vector<std::string> evidence;   // lower-case words for add mode
+            std::vector<Cond>        rarely;     // any holds: a tenth of the weight
         };
 
         struct Group
@@ -246,24 +245,13 @@ namespace BioForge::BlockRules
             return true;
         }
 
-        // <key> [weight N] [when c c ...] [unless c c ...] [rarely c c ...] [evidence w, w ...]
+        // <key> [weight N] [when c c ...] [unless c c ...] [rarely c c ...]
         bool ParseEntry(std::string_view a_value, bool a_fact, Entry& a_entry, std::string& a_error)
         {
             a_entry      = {};
             a_entry.fact = a_fact;
 
-            // Evidence words may contain spaces, so it is split off first and
-            // has to come last.
-            std::string_view head = a_value;
-            const auto       evidenceAt = std::string{ a_value }.find(" evidence ");
-            if (evidenceAt != std::string::npos) {
-                head = a_value.substr(0, evidenceAt);
-                for (auto& word : SplitList(a_value.substr(evidenceAt + 10), ',')) {
-                    a_entry.evidence.push_back(Lower(word));
-                }
-            }
-
-            const auto tokens = SplitWords(head);
+            const auto tokens = SplitWords(a_value);
             if (tokens.empty()) {
                 a_error = "no block key";
                 return false;
@@ -390,29 +378,6 @@ namespace BioForge::BlockRules
                 mix(static_cast<std::uint8_t>(ch));
             }
             return h;
-        }
-
-        // A whole-word match on lower-case text: "hist" must not fire on
-        // "history", nor "mara" on "marauders". Multi-word phrases work.
-        bool ContainsWord(std::string_view a_text, std::string_view a_word)
-        {
-            if (a_word.empty() || a_text.empty()) {
-                return false;
-            }
-            const auto isWordChar = [](char ch) {
-                return std::isalnum(static_cast<unsigned char>(ch)) != 0;
-            };
-            std::size_t pos = 0;
-            while ((pos = a_text.find(a_word, pos)) != std::string_view::npos) {
-                const auto end    = pos + a_word.size();
-                const bool before = pos == 0 || !isWordChar(a_text[pos - 1]);
-                const bool after  = end >= a_text.size() || !isWordChar(a_text[end]);
-                if (before && after) {
-                    return true;
-                }
-                ++pos;
-            }
-            return false;
         }
 
         bool TabMatches(const std::vector<std::string>& a_tabs, std::string_view a_tab)
@@ -558,7 +523,7 @@ namespace BioForge::BlockRules
         ++g_salt[a_refFormID];
     }
 
-    Plan Pick(RE::Actor* a_actor, std::string_view a_bioText, bool a_forGeneration)
+    Plan Pick(RE::Actor* a_actor)
     {
         Plan plan;
         const auto& cfg  = Config::Get();
@@ -586,7 +551,6 @@ namespace BioForge::BlockRules
         const auto ref   = a_actor->GetFormID();
         const auto salt  = Salt(ref);
         const bool child = a_actor->IsChild();
-        const auto bio   = Lower(a_bioText);
 
         // What they carry already, from any provider. Shown to the model, and
         // a group they already have a block in is never added to.
@@ -613,12 +577,11 @@ namespace BioForge::BlockRules
             std::string   source;
         };
         // One menu slot per key: entries naming the same block (a leaning by
-        // race AND by faction) add their weights and pool their evidence.
+        // race AND by faction) add their weights.
         struct Candidate
         {
-            std::string              key;
-            int                      weight{};
-            std::vector<std::string> evidence;
+            std::string key;
+            int         weight{};
         };
         std::vector<Rolled>                    rolls;
         std::vector<std::vector<Candidate>>    candidates(g_groups.size());
@@ -697,16 +660,18 @@ namespace BioForge::BlockRules
                     continue;
                 }
                 // `rarely` keeps an unlikely pairing reachable - the odd
-                // cowardly guard - instead of ruling it out.
-                const int weight = AnyHolds(e.rarely, a_actor) ? (std::min)(1, e.weight) : e.weight;
+                // cowardly guard - at a tenth of the odds, instead of ruling
+                // it out.
+                const int weight = AnyHolds(e.rarely, a_actor) && e.weight > 0
+                                       ? (std::max)(1, e.weight / 10)
+                                       : e.weight;
                 auto&     slots  = candidates[gi];
                 auto      it     = std::find_if(slots.begin(), slots.end(),
                                                 [&](const Candidate& c) { return c.key == e.key; });
                 if (it == slots.end()) {
-                    slots.push_back({ e.key, weight, e.evidence });
+                    slots.push_back({ e.key, weight });
                 } else {
                     it->weight += weight;
-                    it->evidence.insert(it->evidence.end(), e.evidence.begin(), e.evidence.end());
                 }
             }
             if (candidates[gi].empty()) {
@@ -718,65 +683,40 @@ namespace BioForge::BlockRules
             r.group    = gi;
             r.priority = rng();
 
-            // In add mode the existing bio is the evidence: when any
-            // candidate's words appear in it, the pick is made among those
-            // candidates only, and the group's roll is certain to land. Weight
-            // 0 marks an evidence-only entry - never rolled at random, still
-            // on the generation menu, still taken when the bio names it.
-            std::vector<int>         weights;
-            std::vector<std::string> hits(candidates[gi].size());
-            bool                     anyHit = false;
-            for (std::size_t i = 0; i < candidates[gi].size(); ++i) {
-                const auto& c = candidates[gi][i];
-                for (const auto& word : c.evidence) {
-                    if (ContainsWord(bio, word)) {
-                        hits[i] = word;
-                        anyHit  = true;
-                        break;
-                    }
-                }
+            // Weight 0 marks an option that is never rolled but is still on
+            // the menu, for the model to add when the evidence names it.
+            std::vector<int> weights;
+            for (const auto& c : candidates[gi]) {
                 weights.push_back(c.weight);
             }
-            if (anyHit) {
-                for (std::size_t i = 0; i < weights.size(); ++i) {
-                    weights[i] = hits[i].empty() ? 0 : (std::max)(1, weights[i]);
-                }
-            }
-
             const int  chance = intimate ? cfg.blocksIntimateChance : g.chance;
             const bool any    = std::any_of(weights.begin(), weights.end(),
                                             [](int w) { return w > 0; });
-            const bool lands =
-                any && (anyHit || std::uniform_int_distribution<int>{ 0, 99 }(rng) < chance);
-            if (lands) {
+            if (any && std::uniform_int_distribution<int>{ 0, 99 }(rng) < chance) {
                 std::discrete_distribution<int> pick{ weights.begin(), weights.end() };
                 r.index  = pick(rng);
-                r.source = anyHit ? "evidence: bio mentions \"" + hits[r.index] + "\"" : "rolled";
+                r.source = "rolled";
             }
             rolls.push_back(std::move(r));
 
-            if (a_forGeneration) {
-                Menu m;
-                m.group = g.name;
-                m.tabs  = tabs;
-                for (const auto& c : candidates[gi]) {
-                    m.keys.push_back(c.key);
-                    m.titles.push_back(findBlock(c.key)->title);
-                }
-                menuIndex[gi] = static_cast<int>(plan.menus.size());
-                plan.menus.push_back(std::move(m));
+            // Every open group is a menu: a rolled one for the model to keep,
+            // replace or drop, the rest for it to add to when the evidence
+            // names an option outright.
+            Menu m;
+            m.group = g.name;
+            m.tabs  = tabs;
+            for (const auto& c : candidates[gi]) {
+                m.keys.push_back(c.key);
+                m.titles.push_back(findBlock(c.key)->title);
             }
+            menuIndex[gi] = static_cast<int>(plan.menus.size());
+            plan.menus.push_back(std::move(m));
         }
 
         // The flavour cap. Groups compete in a seeded order rather than file
         // order, so the last groups in the file are not always the ones to
-        // lose out; an evidence-led pick outranks a plain roll.
+        // lose out.
         std::sort(rolls.begin(), rolls.end(), [](const Rolled& a, const Rolled& b) {
-            const bool ae = a.source.starts_with("evidence");
-            const bool be = b.source.starts_with("evidence");
-            if (ae != be) {
-                return ae;
-            }
             return a.priority < b.priority;
         });
         int kept = 0;
@@ -841,25 +781,49 @@ namespace BioForge::BlockRules
         return out;
     }
 
-    std::string MenusForPrompt(const Plan& a_plan)
+
+    std::string ReviewForPrompt(const Plan& a_plan)
     {
         if (a_plan.menus.empty() || a_plan.maxFlavour <= 0) {
             return {};
         }
-        std::string out = std::format(
-            "At most {} of these groups may name a block; every other group answers none.\n",
-            a_plan.maxFlavour);
-        for (const auto& m : a_plan.menus) {
-            out += "\n" + m.group + " (default: ";
-            out += m.defaultIndex >= 0 ? std::to_string(m.defaultIndex + 1) : std::string{ "none" };
-            out += ")\n";
+
+        const auto options = [](const Menu& m) {
+            std::string out;
             for (std::size_t i = 0; i < m.keys.size(); ++i) {
-                out += std::format("  {}. {}\n", i + 1, m.titles[i]);
+                out += std::format("{}{}. {}", i ? "; " : "", i + 1, ShortTitle(m.titles[i]));
+            }
+            return out;
+        };
+
+        std::string rolled;
+        std::string open;
+        for (const auto& m : a_plan.menus) {
+            if (m.defaultIndex >= 0) {
+                const auto& key = m.keys[m.defaultIndex];
+                rolled += std::format("- {}: rolled {}. {}", m.group, m.defaultIndex + 1,
+                                      ShortTitle(m.titles[m.defaultIndex]));
+                if (auto block = SeverBio::FindBlock(key); block && !block->content.empty()) {
+                    rolled += " - " + Flatten(block->content, 200);
+                }
+                rolled += "\n  options: " + options(m) + "\n";
+            } else {
+                open += std::format("- {}: {}\n", m.group, options(m));
             }
         }
-        if (!out.empty()) {
-            out.pop_back();
+
+        std::string out = std::format(
+            "At most {} of these traits in all (the traits shown alongside do not count).\n",
+            a_plan.maxFlavour);
+        if (!rolled.empty()) {
+            out += "\nRolled for this person - keep each unless the evidence contradicts it:\n";
+            out += rolled;
         }
+        if (!open.empty()) {
+            out += "\nNot rolled - add one only when the evidence names it outright:\n";
+            out += open;
+        }
+        out.pop_back();
         return out;
     }
 
@@ -867,9 +831,14 @@ namespace BioForge::BlockRules
     {
         a_note.clear();
 
-        // "religion: 3" / "- Religion: none" / "phobias: Phobias: Spiders".
-        std::map<std::string, std::string> answers;
-        std::size_t                        pos = 0;
+        // "religion: keep" / "- Religion: 3 (prays to Dibella)" / "phobias: drop".
+        struct Answer
+        {
+            std::string value;    // as written, reason stripped
+            std::string reason;   // the bracketed part, if any
+        };
+        std::map<std::string, Answer> answers;
+        std::size_t                   pos = 0;
         while (pos <= a_section.size()) {
             const auto end  = a_section.find('\n', pos);
             auto       line = Trim(a_section.substr(pos, end == std::string_view::npos
@@ -883,8 +852,21 @@ namespace BioForge::BlockRules
             if (colon == std::string_view::npos) {
                 continue;
             }
-            answers[Lower(Trim(line.substr(0, colon)))] =
-                std::string{ Trim(line.substr(colon + 1)) };
+            Answer a;
+            auto   value = Trim(line.substr(colon + 1));
+            if (const auto paren = value.find('('); paren != std::string_view::npos) {
+                auto reason = Trim(value.substr(paren + 1));
+                if (!reason.empty() && reason.back() == ')') {
+                    reason.remove_suffix(1);
+                }
+                a.reason = std::string{ Trim(reason) };
+                value    = Trim(value.substr(0, paren));
+            }
+            while (!value.empty() && (value.back() == '.' || value.back() == ',')) {
+                value.remove_suffix(1);
+            }
+            a.value = std::string{ value };
+            answers[Lower(Trim(line.substr(0, colon)))] = std::move(a);
         }
 
         const auto addNote = [&](const std::string& a_text) {
@@ -892,36 +874,37 @@ namespace BioForge::BlockRules
             a_note += a_text;
         };
 
+        enum class How
+        {
+            Kept,
+            Replaced,
+            Added
+        };
         struct Settled
         {
             const Menu* menu{};
             int         index{ -1 };
-            bool        changed{};
+            How         how{ How::Kept };
+            std::string reason;
         };
         std::vector<Settled> settled;
+
         for (const auto& m : a_plan.menus) {
-            Settled s{ &m, m.defaultIndex, false };
-            const auto it = answers.find(m.group);
+            const bool rolled = m.defaultIndex >= 0;
+            const auto it     = answers.find(m.group);
             if (it == answers.end()) {
-                if (!answers.empty()) {
-                    addNote(m.group + ": no answer, kept the default");
+                if (rolled) {
+                    settled.push_back({ &m, m.defaultIndex, How::Kept, {} });
                 }
-                settled.push_back(s);
                 continue;
             }
 
-            auto answer = Lower(it->second);
-            // Trim trailing explanation: "3 (her shrine dialogue)".
-            if (const auto paren = answer.find(" ("); paren != std::string::npos) {
-                answer.resize(paren);
-            }
-            answer = std::string{ Trim(answer) };
-            while (!answer.empty() && (answer.back() == '.' || answer.back() == ',')) {
-                answer.pop_back();
-            }
-
-            int index = -2;   // -2: not understood
-            if (answer == "none" || answer == "-" || answer.empty()) {
+            const auto answer = Lower(it->second.value);
+            int        index  = -2;   // -2: not understood
+            if (answer == "keep" || answer == "kept") {
+                index = m.defaultIndex;
+            } else if (answer == "none" || answer == "drop" || answer == "remove" ||
+                       answer == "-" || answer.empty()) {
                 index = -1;
             } else if (std::all_of(answer.begin(), answer.end(),
                                    [](unsigned char ch) { return std::isdigit(ch); })) {
@@ -940,21 +923,30 @@ namespace BioForge::BlockRules
             }
 
             if (index == -2) {
-                addNote(m.group + ": '" + it->second + "' is not on the menu, kept the default");
-            } else {
-                s.changed = index != m.defaultIndex;
-                s.index   = index;
+                addNote(m.group + ": '" + it->second.value + "' is not an option" +
+                        (rolled ? ", kept the roll" : ", nothing added"));
+                index = m.defaultIndex;
             }
-            settled.push_back(s);
+            if (index < 0) {
+                if (rolled) {
+                    addNote(m.group + ": dropped " + ShortTitle(m.titles[m.defaultIndex]) +
+                            (it->second.reason.empty() ? "" : " (" + it->second.reason + ")"));
+                }
+                continue;
+            }
+            const How how = !rolled ? How::Added : index == m.defaultIndex ? How::Kept : How::Replaced;
+            settled.push_back({ &m, index, how, it->second.reason });
         }
-        if (answers.empty() && !a_plan.menus.empty() && a_plan.maxFlavour > 0) {
-            addNote("no bio_blocks section, kept the rolled defaults");
+        if (answers.empty() && std::any_of(a_plan.menus.begin(), a_plan.menus.end(),
+                                           [](const Menu& m) { return m.defaultIndex >= 0; })) {
+            addNote("no bio_blocks answer, kept the rolls");
         }
 
-        // The cap holds whatever the model did. A change the model made from
-        // the evidence outranks a default it merely kept.
+        // The cap holds whatever the model did. The rolled groups were already
+        // within it, so kept and replaced traits come first and an addition
+        // only fits where a roll was dropped or never landed.
         std::stable_sort(settled.begin(), settled.end(), [](const Settled& a, const Settled& b) {
-            return a.changed && !b.changed;
+            return a.how != How::Added && b.how == How::Added;
         });
 
         std::vector<Choice> out;
@@ -963,26 +955,32 @@ namespace BioForge::BlockRules
         }
         int kept = 0;
         for (const auto& s : settled) {
-            if (s.index < 0) {
-                if (s.changed) {
-                    addNote(s.menu->group + ": model dropped the default");
-                }
-                continue;
-            }
+            const auto title = ShortTitle(s.menu->titles[s.index]);
             if (kept >= a_plan.maxFlavour) {
-                addNote(s.menu->group + ": over the cap of " +
-                        std::to_string(a_plan.maxFlavour) + ", dropped");
+                addNote(s.menu->group + ": " + title + " over the cap of " +
+                        std::to_string(a_plan.maxFlavour) + ", left out");
                 continue;
             }
             ++kept;
-            Choice c;
-            c.key    = s.menu->keys[s.index];
-            c.title  = s.menu->titles[s.index];
-            c.group  = s.menu->group;
-            c.tabs   = s.menu->tabs;
-            c.source = s.changed ? "chosen from the evidence" : "rolled";
-            if (s.changed) {
-                addNote(s.menu->group + ": model chose " + ShortTitle(c.title));
+            const auto why = s.reason.empty() ? std::string{ "the evidence" } : s.reason;
+            Choice     c;
+            c.key   = s.menu->keys[s.index];
+            c.title = s.menu->titles[s.index];
+            c.group = s.menu->group;
+            c.tabs  = s.menu->tabs;
+            switch (s.how) {
+            case How::Kept:
+                c.source = "rolled";
+                break;
+            case How::Replaced:
+                c.source = "replaced the roll: " + why;
+                addNote(s.menu->group + ": " +
+                        ShortTitle(s.menu->titles[s.menu->defaultIndex]) + " -> " + title);
+                break;
+            case How::Added:
+                c.source = "added: " + why;
+                addNote(s.menu->group + ": added " + title);
+                break;
             }
             out.push_back(std::move(c));
         }

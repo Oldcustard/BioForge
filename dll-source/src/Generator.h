@@ -63,6 +63,15 @@ namespace BioForge
         std::size_t GenerateAll(const std::vector<Candidate>& a_candidates,
                                 const std::vector<Candidate>& a_roster = {});
 
+        // Review bio blocks for NPCs who already HAVE a bio: roll each one's
+        // flavour, then ask a model (one small call per NPC, through the same
+        // queue) to keep, replace or drop each roll against that bio, and to
+        // add one only where the bio names it. Results land in the review
+        // list as blocks-only entries; nothing is applied until the player
+        // commits. An NPC with only facts is staged without a call. Returns
+        // how many entries were started. Main thread only.
+        std::size_t ReviewBlocks(const std::vector<Candidate>& a_candidates);
+
         // For the UI: how much work is outstanding.
         Progress GetProgress();
 

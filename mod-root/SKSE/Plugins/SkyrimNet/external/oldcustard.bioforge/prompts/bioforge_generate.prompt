@@ -20,11 +20,12 @@
      bioBlocksFixed (string)  bullet lines: SeverActions bio blocks this NPC
                               already carries or gets from game data (facts).
                               May be ""
-     bioBlocksOpen  (string)  numbered menus, one per open trait group, each
-                              with a rolled default. May be "" - and then the
+     bioBlocksReview (string) the flavour traits rolled for this NPC, each with
+                              its group's numbered options, then the groups
+                              that did not roll. May be "" - and then the
                               model is never asked for a bio_blocks section.
                               The DLL reads the answer back out of the reply
-                              and checks it against these same menus
+                              and checks it against these same lists
 
    ROLE MARKERS ARE MANDATORY. SkyrimNet splits a rendered prompt into chat
    messages on "[ system ]" / "[ user ]" lines. Without them the messages array
@@ -107,25 +108,33 @@ as a character sheet an actor could play from, not as an encyclopedia entry.
 
 # Output format
 
-{% if length(bioBlocksOpen) > 0 %}Output a `### bio_blocks` section FIRST, then EXACTLY the ten sections below, each
+{% if length(bioBlocksReview) > 0 %}Output a `### bio_blocks` section FIRST, then EXACTLY the ten sections below, each
 introduced by its `###` heading on its own line, in this order, with nothing before the
 first heading and nothing after the last section. No preamble, no commentary, no
 markdown fences.
 
 ### bio_blocks
-Settle the trait groups listed under "Traits to settle from the evidence": one line per
-group, `group: N` with the option's number, or `group: none`. Nothing else in this
-section.
+Review the traits listed under "Traits rolled for this person". One line per group you
+answer, using the group names and option numbers from those lists:
+- `group: keep` - keep the rolled trait
+- `group: N (reason)` - replace a roll with option N, or add option N to a group that
+  did not roll; the reason is a few words pointing at the evidence
+- `group: drop (reason)` - remove a rolled trait the evidence contradicts
+Answer every rolled group. Leave out any group that did not roll and gets nothing.
 
-Each group has a default. KEEP IT unless the evidence clearly points to another option
-on that group's list - a priestess whose dialogue keeps invoking Dibella gets Dibella,
-whatever the default says; a man whose lines are all about the next drink gets the
-drinking vice. Answer none only when the evidence contradicts every option. Never name
-an option that is not on the list, and stay within the cap stated there.
+The rolls came first, for variety, and they stand unless the evidence CONTRADICTS them -
+a devout priestess of Mara rolled as a Namira worshipper, a man whose every line is
+bravado rolled as cowardly. Unusual is not a contradiction: a guard can be a coward, a
+shopkeeper can secretly worship a Daedric Prince. When the evidence is silent, keep the
+roll and write the person so the trait belongs to them. Add from a group that did not
+roll only when the evidence names it outright - a priestess whose dialogue keeps
+invoking Dibella gets Dibella - never because an option would merely suit them. Respect
+the stated limit; to add a trait when it is reached, drop a contradicted roll.
 
 These traits are rendered beside the profile as separate blocks. Write the ten sections
 CONSISTENT with what you settle here - never contradict a trait - but do not restate
-them: the block already says it.
+them: the block already says it. A secret stays secret: a hidden Daedric worshipper's
+profile can hint, but should not announce it.
 {% else %}Output EXACTLY the ten sections below, each introduced by its `###` heading on its own
 line, in this order, with nothing before the first heading and nothing after the last
 section. No preamble, no commentary, no markdown fences.
@@ -394,13 +403,14 @@ here.
 {{ bioBlocksFixed }}
 These are already part of who this person is and are shown beside the profile you write.
 Stay consistent with them; do not repeat them.
-{% endif %}{% if length(bioBlocksOpen) > 0 %}## Traits to settle from the evidence
-{# One menu per open trait group, each with a seeded random default. The model
-   keeps the default unless the evidence above points elsewhere; the DLL checks
-   every answer against these menus and falls back to the default. #}
-{{ bioBlocksOpen }}
-Settle these in the `bio_blocks` section, from everything above: dialogue first, then
-factions, where they belong, what they wear and who they are around.
+{% endif %}{% if length(bioBlocksReview) > 0 %}## Traits rolled for this person
+{# The seeded flavour rolls, each with its group's options, then the groups that did
+   not roll. The model keeps a roll unless the evidence contradicts it and adds only on
+   named evidence; the DLL checks every answer against these lists and keeps the roll
+   on anything it cannot read. #}
+{{ bioBlocksReview }}
+Review these in the `bio_blocks` section, against everything above: dialogue first,
+then factions, where they belong, what they wear and who they are around.
 {% endif %}
-{% if length(bioBlocksOpen) > 0 %}Write the bio_blocks section, then the ten sections, for this NPC now.{% else %}Write the ten sections for this NPC now.{% endif %}
+{% if length(bioBlocksReview) > 0 %}Write the bio_blocks section, then the ten sections, for this NPC now.{% else %}Write the ten sections for this NPC now.{% endif %}
 [ end user ]

@@ -14,12 +14,13 @@ namespace RE { class Actor; }
 //  - FACTS follow from game data (a Vigilant worships Stendarr). They are
 //    fixed before anything else happens and the LLM is never offered them as
 //    a choice.
-//  - FLAVOUR is a seeded weighted roll per group, for variety. For a NEW bio
-//    the roll is only the DEFAULT: the open groups go to the generate prompt
-//    as numbered menus, and the model may override a default when the
-//    evidence it is already reading points elsewhere (Dibella dialogue makes
-//    the religion Dibella). For an EXISTING bio there is no LLM call: the
-//    rules' `evidence` words are matched against the bio text instead.
+//  - FLAVOUR is a seeded weighted roll per group, for variety. The roll comes
+//    FIRST, and a model then reviews it against the evidence: it keeps each
+//    rolled trait unless the evidence contradicts it (replace or drop), and
+//    may add one in a group that did not roll only when the evidence names
+//    it outright (Dibella dialogue makes the religion Dibella). For a new bio
+//    the review rides the generate call; for an existing bio it is a small
+//    call of its own (Generator::ReviewBlocks) reading that bio.
 //
 // Everything that is not Pick() is pure string work with no RE:: calls, so
 // Resolve() can run on the LLM completion worker.
@@ -32,18 +33,19 @@ namespace BioForge::BlockRules
         std::string              title;
         std::string              group;
         std::vector<std::string> tabs;     // the group's tabs: "already covered" test
-        std::string              source;   // "fact: ...", "rolled", "evidence: ...", "chosen"
+        std::string              source;   // "fact: ...", "rolled", "replaced the roll: ...", "added: ..."
         bool                     carried{};// already on the NPC, not to be applied
     };
 
-    // One open group offered to the model.
+    // One open group offered to the model: its roll to review when it has
+    // one, otherwise options it may add from when the evidence names one.
     struct Menu
     {
         std::string              group;
         std::vector<std::string> tabs;
         std::vector<std::string> keys;     // 1-based in the prompt
         std::vector<std::string> titles;
-        int                      defaultIndex{ -1 };   // into keys; -1 = none
+        int                      defaultIndex{ -1 };   // the roll, into keys; -1 = none
     };
 
     struct Plan
@@ -53,8 +55,8 @@ namespace BioForge::BlockRules
         bool                appliedKnown{};  // the NPC's current blocks were read
         std::vector<Choice> carried;         // on the NPC already (any provider)
         std::vector<Choice> facts;
-        std::vector<Choice> flavour;         // rolled (or evidence-led) picks
-        std::vector<Menu>   menus;           // generation only: open groups
+        std::vector<Choice> flavour;         // the rolls, before any review
+        std::vector<Menu>   menus;           // every open group, for the review
         int                 maxFlavour{};
 
         // What would be applied: facts + flavour, carried excluded.
@@ -68,24 +70,25 @@ namespace BioForge::BlockRules
     std::size_t GroupCount();
 
     // Build a plan. MAIN THREAD ONLY: reads factions, race, voice, skills.
-    // a_bioText is the NPC's existing bio (add mode) for `evidence` matching;
-    // pass "" for a generation, where the model weighs the evidence itself.
-    // a_forGeneration fills `menus`.
-    Plan Pick(RE::Actor* a_actor, std::string_view a_bioText, bool a_forGeneration);
+    Plan Pick(RE::Actor* a_actor);
 
     // Rolls are seeded from the reference FormID plus this salt, so the same
     // NPC gets the same flavour until the player asks for another roll.
     std::uint32_t Salt(std::uint32_t a_refFormID);
     void          Reroll(std::uint32_t a_refFormID);
 
-    // Context text for the generate prompt. Both may be "".
+    // Context text for the generate and blocks prompts. Both may be "".
+    // FixedForPrompt: carried blocks and facts, with their text.
+    // ReviewForPrompt: the rolled traits to keep/replace/drop, and the
+    // groups that did not roll, to add to only on named evidence.
     std::string FixedForPrompt(const Plan& a_plan);
-    std::string MenusForPrompt(const Plan& a_plan);
+    std::string ReviewForPrompt(const Plan& a_plan);
 
-    // Settle the open menus from the model's `### bio_blocks` section. A
-    // missing, malformed or off-menu answer keeps that group's default, and
-    // the flavour cap is enforced on the result. Thread-safe, no RE:: calls.
-    // a_note says what was overridden or fell back, for the log.
+    // Settle the review from the model's `### bio_blocks` section:
+    // `group: keep | drop | N` for a rolled group, `group: N` to add. A
+    // missing or malformed answer keeps the roll (adds nothing), and the
+    // flavour cap is enforced with rolls ahead of additions. Thread-safe, no
+    // RE:: calls. a_note says what changed or fell back, for the log.
     std::vector<Choice> Resolve(const Plan& a_plan, std::string_view a_section,
                                 std::string& a_note);
 

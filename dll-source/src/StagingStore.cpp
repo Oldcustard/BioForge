@@ -83,6 +83,11 @@ namespace BioForge::Staging
             if (stem.ends_with(".prompt")) {
                 stem.resize(stem.size() - 7);
             }
+            // A blocks review gets its own bundle, so it can never be mistaken
+            // for (or read back as) a staged bio of the same NPC.
+            if (a_entry.blocksOnly) {
+                stem += ".blocks";
+            }
             return StagingRoot() / ContentLibrary::PathFromUtf8(stem);
         }
 
@@ -226,7 +231,8 @@ namespace BioForge::Staging
         return a_missing.empty();
     }
 
-    void Begin(std::uint32_t a_refFormID, std::string_view a_name, std::string_view a_fileName)
+    void Begin(std::uint32_t a_refFormID, std::string_view a_name, std::string_view a_fileName,
+               bool a_blocksOnly)
     {
         std::lock_guard lock{ g_mutex };
         // A re-generation replaces any earlier entry for the same reference.
@@ -238,8 +244,64 @@ namespace BioForge::Staging
         e.name       = a_name;
         e.fileName   = a_fileName;
         e.state      = State::Generating;
+        e.blocksOnly = a_blocksOnly;
         g_entries.push_back(std::move(e));
-        logs::info("generate: queued {} as {}"sv, a_name, a_fileName);
+        if (a_blocksOnly) {
+            logs::info("blocks: reviewing {}"sv, a_name);
+        } else {
+            logs::info("generate: queued {} as {}"sv, a_name, a_fileName);
+        }
+    }
+
+    namespace
+    {
+        // key <TAB> source <TAB> title, one per line: which blocks commit
+        // will apply and why each is there.
+        void WriteBlocksList(const std::filesystem::path&           a_bundle,
+                             const std::vector<BlockRules::Choice>& a_blocks,
+                             std::string_view                       a_note)
+        {
+            if (a_blocks.empty() && a_note.empty()) {
+                return;
+            }
+            std::string list;
+            for (const auto& b : a_blocks) {
+                list += b.key + "\t" + b.source + "\t" + b.title + "\n";
+            }
+            if (!a_note.empty()) {
+                list += "# ";
+                list += a_note;
+                list += "\n";
+            }
+            WriteFile(a_bundle / "blocks.txt", list);
+        }
+    }
+
+    void RecordBlocks(std::uint32_t a_refFormID, std::string_view a_contextJson,
+                      std::string_view a_rawResponse,
+                      const std::vector<BlockRules::Choice>& a_blocks,
+                      std::string_view a_blocksNote)
+    {
+        std::filesystem::path bundle;
+        {
+            std::lock_guard lock{ g_mutex };
+            Entry* e = FindLocked(a_refFormID);
+            if (!e) {
+                return;
+            }
+            bundle        = BundleDir(*e);
+            e->state      = State::Staged;
+            e->note       = a_blocks.empty() ? "nothing to add" : std::string{ a_blocksNote };
+            e->stagingDir = ContentLibrary::Utf8Of(bundle);
+            e->blocks     = a_blocks;
+            e->blocksNote.clear();
+            logs::info("blocks: {} staged - {} block(s){}{}"sv, e->name, a_blocks.size(),
+                       a_blocksNote.empty() ? "" : " - ", a_blocksNote);
+        }
+
+        WriteFile(bundle / "harvest.json", a_contextJson);
+        WriteFile(bundle / "response.raw.txt", a_rawResponse);
+        WriteBlocksList(bundle, a_blocks, a_blocksNote);
     }
 
     void RecordGenerated(std::uint32_t a_refFormID, std::string_view a_contextJson,
@@ -282,20 +344,7 @@ namespace BioForge::Staging
             WriteFile(bundle / "bio.prompt", a_bioText);
         }
 
-        // key <TAB> source <TAB> title, one per line: which blocks commit
-        // will apply and why each is there.
-        if (!a_blocks.empty() || !a_blocksNote.empty()) {
-            std::string list;
-            for (const auto& b : a_blocks) {
-                list += b.key + "\t" + b.source + "\t" + b.title + "\n";
-            }
-            if (!a_blocksNote.empty()) {
-                list += "# ";
-                list += a_blocksNote;
-                list += "\n";
-            }
-            WriteFile(bundle / "blocks.txt", list);
-        }
+        WriteBlocksList(bundle, a_blocks, a_blocksNote);
 
         std::lock_guard lock{ g_mutex };
         if (Entry* e = FindLocked(a_refFormID)) {
@@ -635,8 +684,56 @@ namespace BioForge::Staging
         }
     }
 
+    namespace
+    {
+        // A blocks review: nothing to write to the content library, only the
+        // blocks to apply. Still the player's own press, so the apply-once
+        // rule holds.
+        bool CommitBlocksOnly(const Entry& a_entry)
+        {
+            std::vector<SeverBio::ApplyItem> blocks;
+            for (const auto& b : a_entry.blocks) {
+                if (!b.carried) {
+                    blocks.push_back(SeverBio::ApplyItem{ b.key, b.tabs });
+                }
+            }
+            {
+                std::lock_guard lock{ g_mutex };
+                Entry*          e = FindLocked(a_entry.refFormID);
+                if (!e) {
+                    return false;
+                }
+                if (e->committing) {
+                    return true;
+                }
+                if (blocks.empty() || !Config::Get().blocksEnabled) {
+                    e->committed  = true;
+                    e->blocksNote = blocks.empty() ? "nothing to apply" : "bio blocks are turned off";
+                    return true;
+                }
+                e->committing = true;
+                e->blocksNote = "applying bio blocks...";
+            }
+
+            SeverBio::Apply(a_entry.refFormID, std::move(blocks),
+                            [refFormID = a_entry.refFormID](const SeverBio::ApplyResult& a_result) {
+                                std::lock_guard lock{ g_mutex };
+                                if (Entry* e = FindLocked(refFormID)) {
+                                    e->committing = false;
+                                    e->committed  = a_result.error.empty();
+                                    e->blocksNote = a_result.Describe();
+                                }
+                            });
+            return true;
+        }
+    }
+
     bool Commit(const Entry& a_entry)
     {
+        if (a_entry.blocksOnly) {
+            return CommitBlocksOnly(a_entry);
+        }
+
         const auto source = StagingDirOf(a_entry.stagingDir) / "bio.prompt";
         {
             std::error_code ec;
