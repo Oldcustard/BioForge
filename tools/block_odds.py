@@ -37,7 +37,7 @@ def parse(path):
         if not line:
             continue
         if line.startswith("[") and line.endswith("]"):
-            groups.append({"name": line[1:-1].strip().lower(), "chance": 0, "intimate": False,
+            groups.append({"name": line[1:-1].strip().lower(), "chance": None, "intimate": False,
                            "unless": [], "entries": []})
             continue
         if "=" not in line or not groups:
@@ -118,7 +118,13 @@ def prepare(groups, npc):
                 w = max(1, w // 10)          # a tenth, as BlockRules::Pick does
             weights[e["key"]] = weights.get(e["key"], 0) + w
         if weights:
-            chance = npc.intimate_chance if g["intimate"] else g["chance"]
+            # As BlockRules::Pick: an intimate group's own chance scales the
+            # intimate setting (unset = 100); any other unset group never rolls.
+            if g["intimate"]:
+                own = 100 if g["chance"] is None else g["chance"]
+                chance = npc.intimate_chance * own / 100.0
+            else:
+                chance = g["chance"] or 0
             open_groups.append((g["name"], chance, list(weights), list(weights.values())))
     return facts, open_groups
 

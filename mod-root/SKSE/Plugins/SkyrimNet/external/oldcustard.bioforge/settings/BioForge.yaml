@@ -145,7 +145,7 @@ schema:
     - name: "Intimate Block Chance"
       path: "blocks.intimateChance"
       type: "int"
-      description: "Percent chance for each intimate group (behaviour, kinks, dislikes) to give an NPC a block, when Intimate Blocks is on."
+      description: "How often intimate blocks appear, when Intimate Blocks is on: the percent chance for an intimate group (behaviour, kinks, dislikes) to give an NPC a block. block_rules.ini can make one group a share of this - sexual dislikes, with only four options, roll at a third of it by default."
       defaultValue: 30
       min: 0
       max: 100

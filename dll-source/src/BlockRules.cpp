@@ -53,7 +53,7 @@ namespace BioForge::BlockRules
         {
             std::string              name;
             std::vector<std::string> tabs;
-            int                      chance{};
+            int                      chance{ -1 };   // -1: not set in the file
             bool                     intimate{};
             std::vector<Cond>        unless;
             std::vector<Entry>       entries;
@@ -684,10 +684,16 @@ namespace BioForge::BlockRules
             for (const auto& c : slots) {
                 weights.push_back(c.weight);
             }
-            const int  chance = intimate ? cfg.blocksIntimateChance : g.chance;
-            const bool any    = std::any_of(weights.begin(), weights.end(),
-                                            [](int w) { return w > 0; });
-            if (any && std::uniform_int_distribution<int>{ 0, 99 }(rng) < chance) {
+            // An intimate group's `chance` scales the player's intimate
+            // setting rather than replacing it (unset = 100%), so the setting
+            // stays the master dial and the file can still make one intimate
+            // group rarer than another. Anything else unset never rolls.
+            // In hundredths of a percent, so the product keeps its precision.
+            const int chance = intimate ? cfg.blocksIntimateChance * (g.chance < 0 ? 100 : g.chance)
+                                        : (std::max)(0, g.chance) * 100;
+            const bool any   = std::any_of(weights.begin(), weights.end(),
+                                           [](int w) { return w > 0; });
+            if (any && std::uniform_int_distribution<int>{ 0, 9999 }(rng) < chance) {
                 std::discrete_distribution<int> pick{ weights.begin(), weights.end() };
                 m.defaultIndex = pick(rng);
 
