@@ -428,8 +428,20 @@ namespace BioForge::BlockRules
             return out;
         }
 
-        // FNV-1a: a stable seed per (NPC, reroll count, group), so one
-        // group's roll never shifts because another group was added.
+        // Drawn once per game launch. Nothing BioForge rolls outlives the
+        // session (staging is cleared on load, and an applied block covers
+        // its group so it is never re-rolled), so there is nothing for a
+        // cross-session seed to keep stable - it only made every launch
+        // deal each NPC the same hand.
+        std::uint32_t SessionNonce()
+        {
+            static const std::uint32_t nonce = std::random_device{}();
+            return nonce;
+        }
+
+        // FNV-1a: a seed per (session, NPC, reroll count, group), stable
+        // within a session so the scan, the review and the commit agree, and
+        // so one group's roll never shifts because another group was added.
         std::uint32_t Seed(std::uint32_t a_ref, std::uint32_t a_salt, std::string_view a_group)
         {
             std::uint32_t h     = 2166136261u;
@@ -437,6 +449,10 @@ namespace BioForge::BlockRules
                 h ^= a_byte;
                 h *= 16777619u;
             };
+            const auto nonce = SessionNonce();
+            for (int i = 0; i < 4; ++i) {
+                mix(static_cast<std::uint8_t>(nonce >> (8 * i)));
+            }
             for (int i = 0; i < 4; ++i) {
                 mix(static_cast<std::uint8_t>(a_ref >> (8 * i)));
             }

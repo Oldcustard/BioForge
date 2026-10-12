@@ -87,7 +87,8 @@ a dislike, a phobia, a vice or a temperament, shown beside the bio.
   Stormcloak dislikes the Empire, someone with the drunk voice is an alcoholic.
 - 🎲 **Flavour is rolled first**, for variety. Each trait group (religion, temperament,
   dislikes, phobias, vices...) rolls on its own chance, so an average NPC gets two or
-  three. The roll is stable per NPC; **Reroll** in the Blocks column rolls again.
+  three. Each game launch deals a fresh roll, which holds for the session;
+  **Reroll** in the Blocks column rolls again.
 - 🔎 **Then a model checks the rolls against the evidence.** It keeps each roll unless the
   NPC's evidence contradicts it, in which case it replaces or drops it. It adds a trait
   from a group that didn't roll only when the evidence names it outright: a priestess
