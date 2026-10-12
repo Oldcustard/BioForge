@@ -892,6 +892,26 @@ namespace BioForge::BlockRules
         return out;
     }
 
+    namespace
+    {
+        // A reason that only says the evidence is SILENT on a trait. Silence
+        // is not a contradiction, so it cannot justify changing a roll.
+        bool ArguesFromSilence(std::string_view a_reason)
+        {
+            static constexpr std::string_view kSilence[] = {
+                "no mention",     "not mentioned",  "never mentioned", "doesn't mention",
+                "does not mention", "no evidence",  "no indication",   "no sign",
+                "nothing suggests", "nothing indicates", "no reference", "not indicated",
+                "no suggestion",  "shows no",       "lacks any",       "unspecified",
+                "fits better",    "better fit",     "more fitting",    "more suitable",
+                "more appropriate", "more likely",  "more plausible",  "unlikely"
+            };
+            const auto reason = Lower(a_reason);
+            return std::any_of(std::begin(kSilence), std::end(kSilence),
+                               [&](std::string_view s) { return reason.find(s) != std::string::npos; });
+        }
+    }
+
     std::vector<Choice> Resolve(const Plan& a_plan, std::string_view a_section, std::string& a_note)
     {
         a_note.clear();
@@ -992,6 +1012,22 @@ namespace BioForge::BlockRules
                 addNote(m.group + ": '" + it->second.value + "' is not an option" +
                         (rolled ? ", kept the roll" : ", nothing added"));
                 index = m.defaultIndex;
+            }
+            // A change must point at evidence. Models swap rare or dark rolls
+            // for tamer ones and justify it from silence ("no mention of
+            // drinking"), which the prompt forbids and they do anyway - so
+            // the roll stands unless the reason names something.
+            if (index != m.defaultIndex) {
+                const auto& why = it->second.reason;
+                const char* refused = why.empty()        ? "no reason given"
+                                      : ArguesFromSilence(why) ? "argued from silence"
+                                                               : nullptr;
+                if (refused) {
+                    addNote(m.group + ": ignored '" + it->second.value + "' (" + refused +
+                            (why.empty() ? "" : ": " + why) + ")" +
+                            (rolled ? ", kept the roll" : ", nothing added"));
+                    index = m.defaultIndex;
+                }
             }
             if (index < 0) {
                 if (rolled) {

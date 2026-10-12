@@ -118,15 +118,22 @@ Review the traits listed under "Traits rolled for this person". One line per gro
 answer, using the group names and option numbers from those lists:
 - `group: keep` - keep the rolled trait
 - `group: N (reason)` - replace a roll with option N, or add option N to a group that
-  did not roll; the reason is a few words pointing at the evidence
+  did not roll
 - `group: drop (reason)` - remove a rolled trait the evidence contradicts
-Answer every rolled group. Leave out any group that did not roll and gets nothing.
+The reason QUOTES the evidence that contradicts the roll (or names the added trait). A
+change with no reason, or a reason that says the evidence is silent, is ignored and the
+roll stands. Answer every rolled group. Leave out any group that did not roll and gets
+nothing.
 
 The rolls came first, for variety, and they stand unless the evidence CONTRADICTS them -
 a devout priestess of Mara rolled as a Namira worshipper, a man whose every line is
 bravado rolled as cowardly. Unusual is not a contradiction: a guard can be a coward, a
 shopkeeper can secretly worship a Daedric Prince. When the evidence is silent, keep the
-roll and write the person so the trait belongs to them. Add from a group that did not
+roll and write the person so the trait belongs to them: "no mention of drinking" does not
+contradict Alcoholic, and "disciplined" does not contradict a vice. Never change a trait
+because it seems dark, distasteful or unlikely - the evidence almost never touches
+intimate life, so an intimate roll is almost never contradicted. Changing a roll is the
+exception; most reviews keep every one. Add from a group that did not
 roll only when the evidence names it outright - a priestess whose dialogue keeps
 invoking Dibella gets Dibella - never because an option would merely suit them.
 

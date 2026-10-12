@@ -42,6 +42,14 @@ them against the profile - not to pick the traits that fit best.
   worship a Daedric Prince; a cheerful baker can fear the dark. Rare, surprising traits
   are the point of rolling - they are what make a minor character memorable. If the
   profile is merely silent on it, keep it.
+- **Silence is not a contradiction.** "No mention of drinking" does not contradict
+  Alcoholic; "a disciplined warrior" does not contradict a vice. A profile describes a
+  few things about a person, never everything - the roll fills a gap, it does not
+  overwrite anything.
+- **Never change a trait because it seems dark, distasteful, unlikely or ill-fitting.**
+  Profiles almost never discuss intimate life, so an intimate trait is almost never
+  contradicted: keep it.
+- **Changing a roll is the exception.** In most reviews every roll is kept.
 - **When a roll is contradicted**, replace it with the option the profile supports, or
   drop it when no option fits.
 - **Add a trait from a group that did not roll only when the profile names it outright**
@@ -58,8 +66,11 @@ after it. No preamble, no markdown fences.
 One line per group you answer, using the group names and option numbers from the lists:
 - `group: keep` - keep the rolled trait
 - `group: N (reason)` - replace a roll with option N, or add option N to a group that did
-  not roll; the reason is a few words quoting or pointing at the profile
+  not roll
 - `group: drop (reason)` - remove a rolled trait the profile contradicts
+The reason QUOTES the profile's words that contradict the roll (or name the added
+trait). A change with no reason, or a reason that says the profile is silent, is
+ignored and the roll stands.
 
 Answer every rolled group. Leave out any group that did not roll and gets nothing.
 
