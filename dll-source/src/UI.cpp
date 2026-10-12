@@ -603,6 +603,19 @@ namespace BioForge::UI
         // Changes the model made stand out from rolls it merely kept.
         constexpr ImGuiMCP::ImVec4 kChangeColour{ 0.55f, 0.75f, 1.00f, 1.0f };
         constexpr ImGuiMCP::ImVec4 kFailColour{ 1.00f, 0.45f, 0.40f, 1.0f };
+        // Secondary text in the reader. ImGui's own "disabled" grey is too
+        // faint to read against SMF's panel, so these stay well above it:
+        // muted for supporting detail, dropped for rows set aside.
+        constexpr ImGuiMCP::ImVec4 kMutedColour{ 0.80f, 0.80f, 0.80f, 1.0f };
+        constexpr ImGuiMCP::ImVec4 kDroppedColour{ 0.66f, 0.66f, 0.66f, 1.0f };
+
+        // TextWrapped in a colour (ImGui has no TextColoredWrapped).
+        void WrappedIn(const ImGuiMCP::ImVec4& a_colour, const std::string& a_text)
+        {
+            ImGuiMCP::PushStyleColor(ImGuiMCP::ImGuiCol_Text, a_colour);
+            ImGuiMCP::TextWrapped("%s", a_text.c_str());
+            ImGuiMCP::PopStyleColor();
+        }
 
         // One row per block: what happened to it, the block, and why - the
         // model's own words for anything it changed. Dropped rolls are shown
@@ -633,16 +646,16 @@ namespace BioForge::UI
                 case V::Rolled:  ImGuiMCP::Text("Kept"); break;
                 case V::Changed: ImGuiMCP::TextColored(kChangeColour, "Changed"); break;
                 case V::Added:   ImGuiMCP::TextColored(kChangeColour, "Added"); break;
-                case V::Dropped: ImGuiMCP::TextDisabled("Dropped"); break;
+                case V::Dropped: ImGuiMCP::TextColored(kDroppedColour, "Dropped"); break;
                 }
 
                 ImGuiMCP::TableNextColumn();
-                ImGuiMCP::TextDisabled("%s", b.group.c_str());
+                ImGuiMCP::TextColored(dropped ? kDroppedColour : kMutedColour, "%s", b.group.c_str());
 
                 ImGuiMCP::TableNextColumn();
                 const auto title = BlockRules::ShortTitle(b.title);
                 if (dropped) {
-                    ImGuiMCP::TextDisabled("%s", title.c_str());
+                    ImGuiMCP::TextColored(kDroppedColour, "%s", title.c_str());
                 } else {
                     ImGuiMCP::Text("%s", title.c_str());
                 }
@@ -661,11 +674,10 @@ namespace BioForge::UI
                 case V::Added:   why = b.reason.empty() ? "named in the evidence" : b.reason; break;
                 case V::Dropped: why = b.reason.empty() ? "contradicted by the evidence" : b.reason; break;
                 }
-                if (b.verdict == V::Rolled || dropped) {
-                    ImGuiMCP::PushStyleColor(ImGuiMCP::ImGuiCol_Text,
-                                             ImGuiMCP::GetStyle()->Colors[ImGuiMCP::ImGuiCol_TextDisabled]);
-                    ImGuiMCP::TextWrapped("%s", why.c_str());
-                    ImGuiMCP::PopStyleColor();
+                if (dropped) {
+                    WrappedIn(kDroppedColour, why);
+                } else if (b.verdict == V::Rolled) {
+                    WrappedIn(kMutedColour, why);
                 } else {
                     ImGuiMCP::TextWrapped("%s", why.c_str());
                 }
@@ -730,9 +742,9 @@ namespace BioForge::UI
             ImGuiMCP::Text("%s", sel->name.c_str());
             ImGuiMCP::SameLine();
             if (sel->blocksOnly) {
-                ImGuiMCP::TextDisabled("- bio blocks for the existing bio");
+                ImGuiMCP::TextColored(kMutedColour, "- bio blocks for the existing bio");
             } else {
-                ImGuiMCP::TextDisabled("- new bio, %s.prompt", sel->fileName.c_str());
+                ImGuiMCP::TextColored(kMutedColour, "- new bio, %s.prompt", sel->fileName.c_str());
             }
             ImGuiMCP::SameLine();
             if (sel->state == Staging::State::Failed) {
@@ -758,7 +770,7 @@ namespace BioForge::UI
                     ImGuiMCP::TextColored(sel->committed ? kHaveColour : kGapColour, "%s",
                                           sel->blocksNote.c_str());
                 } else if (!sel->committed) {
-                    ImGuiMCP::TextDisabled(sel->blocksOnly
+                    ImGuiMCP::TextColored(kMutedColour, sel->blocksOnly
                                                ? "Apply blocks adds every row but the dropped ones."
                                                : "Committing adds every row but the dropped ones.");
                 }
@@ -782,7 +794,7 @@ namespace BioForge::UI
             // Reserve the last line for the buttons; the rest scrolls.
             if (ImGuiMCP::BeginChild("bioforge_reader_text", ImGuiMCP::ImVec2(0.0f, -36.0f))) {
                 if (g_reviewText.empty()) {
-                    ImGuiMCP::TextDisabled("(nothing to show)");
+                    ImGuiMCP::TextColored(kMutedColour, "(nothing to show)");
                 } else {
                     ImGuiMCP::PushTextWrapPos(0.0f);   // wrap at the window edge
                     // "%s" matters: bio prose may contain a literal '%'.
