@@ -69,8 +69,7 @@ One line per group you answer, using the group names and option numbers from the
   not roll
 - `group: drop (reason)` - remove a rolled trait the profile contradicts
 The reason QUOTES the profile's words that contradict the roll (or name the added
-trait). A change with no reason, or a reason that says the profile is silent, is
-ignored and the roll stands.
+trait). A change with no reason is ignored and the roll stands.
 
 Answer every rolled group. Leave out any group that did not roll and gets nothing.
 
