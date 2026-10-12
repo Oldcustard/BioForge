@@ -26,6 +26,16 @@ namespace RE { class Actor; }
 // Resolve() can run on the LLM completion worker.
 namespace BioForge::BlockRules
 {
+    // What the review made of a block, for the reader.
+    enum class Verdict
+    {
+        Fact,      // follows from game data, never reviewed
+        Rolled,    // rolled, and kept (or not yet reviewed)
+        Changed,   // the model replaced the roll with this one
+        Added,     // the model added it from named evidence
+        Dropped    // the model dropped this roll - NOT applied
+    };
+
     // A block chosen for one NPC.
     struct Choice
     {
@@ -33,8 +43,13 @@ namespace BioForge::BlockRules
         std::string              title;
         std::string              group;
         std::vector<std::string> tabs;     // the group's tabs: "already covered" test
-        std::string              source;   // "fact: ...", "rolled", "replaced the roll: ...", "added: ..."
+        std::string              source;   // one line for logs and blocks.txt
         bool                     carried{};// already on the NPC, not to be applied
+        Verdict                  verdict{ Verdict::Rolled };
+        std::string              reason;   // the fact's condition, or the model's words
+        std::string              was;      // Changed: the roll it replaced
+
+        [[nodiscard]] bool Applies() const { return !carried && verdict != Verdict::Dropped; }
     };
 
     // One open group offered to the model: its roll to review when it has

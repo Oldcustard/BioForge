@@ -328,6 +328,8 @@ namespace BioForge::Generator
             // The bio-block plan the prompt was given. The completion reads
             // the model's answer against THIS, never against the world.
             BlockRules::Plan blocks;
+            // Blocks: the bio the review reads, kept for the reader.
+            std::string      subjectBio;
         };
 
         // A staged bio whose relationships block needs re-asking, and the
@@ -377,7 +379,8 @@ namespace BioForge::Generator
                                std::string_view              a_digest);
 
         void OnComplete(Kind a_kind, std::uint32_t a_refFormID, const std::string& a_context,
-                        const BlockRules::Plan& a_blocks, const char* a_response, int a_success)
+                        const BlockRules::Plan& a_blocks, const std::string& a_subjectBio,
+                        const char* a_response, int a_success)
         {
             if (a_kind == Kind::Refine) {
                 // A failed refine must never damage what pass one produced.
@@ -416,7 +419,7 @@ namespace BioForge::Generator
                     }
                     std::string note;
                     const auto  blocks = BlockRules::Resolve(a_blocks, section, note);
-                    Staging::RecordBlocks(a_refFormID, a_context, raw, blocks, note);
+                    Staging::RecordBlocks(a_refFormID, a_context, raw, blocks, note, a_subjectBio);
                 }
                 {
                     std::lock_guard lock{ g_queueMutex };
@@ -490,8 +493,8 @@ namespace BioForge::Generator
                     prompt.data(),
                     job.variant.c_str(), job.contextJson.c_str(),
                     [kind = job.kind, ref = job.refFormID, ctx = job.contextJson,
-                     plan = job.blocks](const char* a_response, int a_success) {
-                        OnComplete(kind, ref, ctx, plan, a_response, a_success);
+                     plan = job.blocks, bio = job.subjectBio](const char* a_response, int a_success) {
+                        OnComplete(kind, ref, ctx, plan, bio, a_response, a_success);
                     });
 
                 if (!queued) {
@@ -774,19 +777,20 @@ namespace BioForge::Generator
             const auto fileName = Staging::BioFileName(c);
             const auto review   = BlockRules::ReviewForPrompt(plan);
 
-            // Facts only: nothing for a model to decide, so stage them now
-            // rather than spend a call confirming them.
-            if (review.empty()) {
-                Staging::Begin(c.refFormID, c.name, fileName, true);
-                Staging::RecordBlocks(c.refFormID, {}, {}, plan.ToApply(), "facts only");
-                ++settled;
-                continue;
-            }
-
             std::string bio;
             if (const auto* file = library.Find(c.wouldWriteAs)) {
                 bio = BioForPrompt(ContentLibrary::ReadBioFile(file->path));
             }
+
+            // Facts only: nothing for a model to decide, so stage them now
+            // rather than spend a call confirming them.
+            if (review.empty()) {
+                Staging::Begin(c.refFormID, c.name, fileName, true);
+                Staging::RecordBlocks(c.refFormID, {}, {}, plan.ToApply(), "facts only", bio);
+                ++settled;
+                continue;
+            }
+
             if (bio.empty()) {
                 logs::warn("blocks: {} has no readable bio - skipped"sv, c.name);
                 continue;
@@ -804,7 +808,8 @@ namespace BioForge::Generator
                 "\"existingBio\":\"" + Json::Escape(bio) + "\"," +
                 "\"bioBlocksFixed\":\"" + Json::Escape(BlockRules::FixedForPrompt(plan)) + "\"," +
                 "\"bioBlocksReview\":\"" + Json::Escape(review) + "\"}";
-            job.blocks = std::move(plan);
+            job.blocks     = std::move(plan);
+            job.subjectBio = std::move(bio);
             jobs.push_back(std::move(job));
         }
 

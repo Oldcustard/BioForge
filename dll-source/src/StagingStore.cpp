@@ -280,8 +280,11 @@ namespace BioForge::Staging
     void RecordBlocks(std::uint32_t a_refFormID, std::string_view a_contextJson,
                       std::string_view a_rawResponse,
                       const std::vector<BlockRules::Choice>& a_blocks,
-                      std::string_view a_blocksNote)
+                      std::string_view a_blocksNote, std::string_view a_existingBio)
     {
+        const auto applying = std::count_if(a_blocks.begin(), a_blocks.end(),
+                                            [](const BlockRules::Choice& c) { return c.Applies(); });
+
         std::filesystem::path bundle;
         {
             std::lock_guard lock{ g_mutex };
@@ -289,18 +292,21 @@ namespace BioForge::Staging
             if (!e) {
                 return;
             }
-            bundle        = BundleDir(*e);
-            e->state      = State::Staged;
-            e->note       = a_blocks.empty() ? "nothing to add" : std::string{ a_blocksNote };
+            bundle   = BundleDir(*e);
+            e->state = State::Staged;
+            // The reader's table says what changed and why; the note is only
+            // for what the table cannot show.
+            e->note       = applying == 0 ? "nothing to add" : std::string{};
             e->stagingDir = ContentLibrary::Utf8Of(bundle);
             e->blocks     = a_blocks;
             e->blocksNote.clear();
-            logs::info("blocks: {} staged - {} block(s){}{}"sv, e->name, a_blocks.size(),
+            logs::info("blocks: {} staged - {} block(s){}{}"sv, e->name, applying,
                        a_blocksNote.empty() ? "" : " - ", a_blocksNote);
         }
 
         WriteFile(bundle / "harvest.json", a_contextJson);
         WriteFile(bundle / "response.raw.txt", a_rawResponse);
+        WriteFile(bundle / "existing.bio.txt", a_existingBio);
         WriteBlocksList(bundle, a_blocks, a_blocksNote);
     }
 
@@ -363,7 +369,7 @@ namespace BioForge::Staging
         }
         e->state = State::Failed;
         e->note  = a_reason;
-        logs::error("generate: {} failed - {}"sv, e->name, a_reason);
+        logs::error("{}: {} failed - {}"sv, e->blocksOnly ? "blocks" : "generate", e->name, a_reason);
     }
 
     std::vector<Entry> Snapshot()
@@ -562,6 +568,14 @@ namespace BioForge::Staging
         return ReadWholeFile(StagingDirOf(a_entry.stagingDir) / "response.raw.txt");
     }
 
+    std::string ReadExistingBio(const Entry& a_entry)
+    {
+        if (a_entry.stagingDir.empty()) {
+            return {};
+        }
+        return ReadWholeFile(StagingDirOf(a_entry.stagingDir) / "existing.bio.txt");
+    }
+
     std::string StagedBioFor(std::uint32_t a_refFormID)
     {
         std::filesystem::path dir;
@@ -693,7 +707,7 @@ namespace BioForge::Staging
         {
             std::vector<SeverBio::ApplyItem> blocks;
             for (const auto& b : a_entry.blocks) {
-                if (!b.carried) {
+                if (b.Applies()) {
                     blocks.push_back(SeverBio::ApplyItem{ b.key, b.tabs });
                 }
             }
@@ -763,7 +777,7 @@ namespace BioForge::Staging
         std::vector<SeverBio::ApplyItem> blocks;
         if (Config::Get().blocksEnabled) {
             for (const auto& b : a_entry.blocks) {
-                if (!b.carried) {
+                if (b.Applies()) {
                     blocks.push_back(SeverBio::ApplyItem{ b.key, b.tabs });
                 }
             }

@@ -573,20 +573,104 @@ namespace BioForge::UI
         // Review state. The text buffer is only refilled when the selection or
         // the underlying bundle changes - re-reading a 4KB file every frame for
         // a menu nobody is scrolling would be silly.
+        // What the reader's text pane holds.
+        enum class Pane
+        {
+            Bio,        // the staged bio
+            Raw,        // the model's raw reply
+            Existing    // a blocks review: the bio it was checked against
+        };
+
         std::uint32_t g_selected    = 0;
-        std::string   g_reviewText;              // the bio as read from disk
+        std::string   g_reviewText;              // the pane's text, as read from disk
         std::uint32_t g_bufferFor   = 0;
-        bool          g_bufferIsRaw = false;
+        Pane          g_bufferPane  = Pane::Bio;
         bool          g_showRaw     = false;
         bool          g_openReader  = false;     // request to open the overlay
         bool          g_openDiscardAll = false;  // ditto, for the bulk confirm
 
-        void FillReviewBuffer(const Staging::Entry& a_entry, bool a_raw)
+        void FillReviewBuffer(const Staging::Entry& a_entry, Pane a_pane)
         {
-            g_reviewText  = a_raw ? Staging::ReadRawResponse(a_entry)
-                                  : Staging::ReadStagedBio(a_entry);
-            g_bufferFor   = a_entry.refFormID;
-            g_bufferIsRaw = a_raw;
+            switch (a_pane) {
+            case Pane::Bio:      g_reviewText = Staging::ReadStagedBio(a_entry); break;
+            case Pane::Raw:      g_reviewText = Staging::ReadRawResponse(a_entry); break;
+            case Pane::Existing: g_reviewText = Staging::ReadExistingBio(a_entry); break;
+            }
+            g_bufferFor  = a_entry.refFormID;
+            g_bufferPane = a_pane;
+        }
+
+        // Changes the model made stand out from rolls it merely kept.
+        constexpr ImGuiMCP::ImVec4 kChangeColour{ 0.55f, 0.75f, 1.00f, 1.0f };
+        constexpr ImGuiMCP::ImVec4 kFailColour{ 1.00f, 0.45f, 0.40f, 1.0f };
+
+        // One row per block: what happened to it, the block, and why - the
+        // model's own words for anything it changed. Dropped rolls are shown
+        // greyed out, because "the model removed X" is as much a part of the
+        // review as what it kept.
+        void DrawBlocksTable(const Staging::Entry& a_entry)
+        {
+            constexpr auto flags = ImGuiMCP::ImGuiTableFlags_RowBg |
+                                   ImGuiMCP::ImGuiTableFlags_BordersInnerH |
+                                   ImGuiMCP::ImGuiTableFlags_SizingFixedFit;
+            if (!ImGuiMCP::BeginTable("bioforge_reader_blocks", 4, flags)) {
+                return;
+            }
+            ImGuiMCP::TableSetupColumn("");
+            ImGuiMCP::TableSetupColumn("Group");
+            ImGuiMCP::TableSetupColumn("Block");
+            ImGuiMCP::TableSetupColumn("Why", ImGuiMCP::ImGuiTableColumnFlags_WidthStretch);
+            ImGuiMCP::TableHeadersRow();
+
+            using V = BlockRules::Verdict;
+            for (const auto& b : a_entry.blocks) {
+                const bool dropped = b.verdict == V::Dropped;
+                ImGuiMCP::TableNextRow();
+
+                ImGuiMCP::TableNextColumn();
+                switch (b.verdict) {
+                case V::Fact:    ImGuiMCP::TextColored(kHaveColour, "Fact"); break;
+                case V::Rolled:  ImGuiMCP::Text("Kept"); break;
+                case V::Changed: ImGuiMCP::TextColored(kChangeColour, "Changed"); break;
+                case V::Added:   ImGuiMCP::TextColored(kChangeColour, "Added"); break;
+                case V::Dropped: ImGuiMCP::TextDisabled("Dropped"); break;
+                }
+
+                ImGuiMCP::TableNextColumn();
+                ImGuiMCP::TextDisabled("%s", b.group.c_str());
+
+                ImGuiMCP::TableNextColumn();
+                const auto title = BlockRules::ShortTitle(b.title);
+                if (dropped) {
+                    ImGuiMCP::TextDisabled("%s", title.c_str());
+                } else {
+                    ImGuiMCP::Text("%s", title.c_str());
+                }
+                if (ImGuiMCP::IsItemHovered()) {
+                    if (const auto block = SeverBio::FindBlock(b.key); block && !block->content.empty()) {
+                        ImGuiMCP::SetTooltip("%s", block->content.c_str());
+                    }
+                }
+
+                ImGuiMCP::TableNextColumn();
+                std::string why;
+                switch (b.verdict) {
+                case V::Fact:    why = b.reason; break;
+                case V::Rolled:  why = "rolled; nothing contradicts it"; break;
+                case V::Changed: why = "instead of " + b.was + (b.reason.empty() ? "" : " - " + b.reason); break;
+                case V::Added:   why = b.reason.empty() ? "named in the evidence" : b.reason; break;
+                case V::Dropped: why = b.reason.empty() ? "contradicted by the evidence" : b.reason; break;
+                }
+                if (b.verdict == V::Rolled || dropped) {
+                    ImGuiMCP::PushStyleColor(ImGuiMCP::ImGuiCol_Text,
+                                             ImGuiMCP::GetStyle()->Colors[ImGuiMCP::ImGuiCol_TextDisabled]);
+                    ImGuiMCP::TextWrapped("%s", why.c_str());
+                    ImGuiMCP::PopStyleColor();
+                } else {
+                    ImGuiMCP::TextWrapped("%s", why.c_str());
+                }
+            }
+            ImGuiMCP::EndTable();
         }
 
         // A blocks review commits nothing to the content library - it only
@@ -642,44 +726,58 @@ namespace BioForge::UI
                 return;
             }
 
+            // --- who, what kind of entry, and where it stands ---
+            ImGuiMCP::Text("%s", sel->name.c_str());
+            ImGuiMCP::SameLine();
             if (sel->blocksOnly) {
-                ImGuiMCP::Text("%s  ->  bio blocks only, beside the existing bio%s",
-                               sel->name.c_str(), sel->committed ? "  (applied)" : "");
+                ImGuiMCP::TextDisabled("- bio blocks for the existing bio");
             } else {
-                ImGuiMCP::Text("%s  ->  %s%s", sel->name.c_str(), sel->fileName.c_str(),
-                               sel->committed ? "  (committed)" : "");
+                ImGuiMCP::TextDisabled("- new bio, %s.prompt", sel->fileName.c_str());
+            }
+            ImGuiMCP::SameLine();
+            if (sel->state == Staging::State::Failed) {
+                ImGuiMCP::TextColored(kFailColour, "  failed");
+            } else if (sel->committing) {
+                ImGuiMCP::TextColored(kGapColour, sel->blocksOnly ? "  applying..." : "  committing...");
+            } else if (sel->committed) {
+                ImGuiMCP::TextColored(kHaveColour, sel->blocksOnly ? "  applied" : "  committed");
+            } else {
+                ImGuiMCP::TextColored(kGapColour, sel->blocksOnly ? "  not applied yet"
+                                                                 : "  not committed yet");
             }
             if (!sel->note.empty()) {
                 ImGuiMCP::TextWrapped("%s", sel->note.c_str());
             }
-            // The blocks commit will apply, and why each is there.
+
+            // --- the blocks, as a table rather than a run-on line ---
             if (!sel->blocks.empty()) {
-                std::string line = "Bio blocks: ";
-                for (std::size_t i = 0; i < sel->blocks.size(); ++i) {
-                    line += (i ? ", " : "");
-                    line += BlockRules::ShortTitle(sel->blocks[i].title);
-                }
-                ImGuiMCP::TextWrapped("%s", line.c_str());
-                if (ImGuiMCP::IsItemHovered() && ImGuiMCP::BeginTooltip()) {
-                    for (const auto& b : sel->blocks) {
-                        ImGuiMCP::Text("%s  (%s)", b.title.c_str(), b.source.c_str());
-                    }
-                    ImGuiMCP::EndTooltip();
+                ImGuiMCP::Spacing();
+                ImGuiMCP::SeparatorText("Bio blocks");
+                DrawBlocksTable(*sel);
+                if (!sel->blocksNote.empty()) {
+                    ImGuiMCP::TextColored(sel->committed ? kHaveColour : kGapColour, "%s",
+                                          sel->blocksNote.c_str());
+                } else if (!sel->committed) {
+                    ImGuiMCP::TextDisabled(sel->blocksOnly
+                                               ? "Apply blocks adds every row but the dropped ones."
+                                               : "Committing adds every row but the dropped ones.");
                 }
             }
-            if (!sel->blocksNote.empty()) {
-                ImGuiMCP::TextDisabled("%s", sel->blocksNote.c_str());
-            }
-            ImGuiMCP::Separator();
 
             // A failed parse has no bio, so show what the model actually said -
             // that is the only way to see why it failed. A blocks review has
-            // no bio either: its reply (with the model's reasons) IS the text.
-            const bool wantRaw =
-                g_showRaw || sel->state == Staging::State::Failed || sel->blocksOnly;
-            if (g_bufferFor != sel->refFormID || g_bufferIsRaw != wantRaw) {
-                FillReviewBuffer(*sel, wantRaw);
+            // no new bio: it shows the one the model checked the blocks against.
+            Pane pane = sel->blocksOnly ? Pane::Existing : Pane::Bio;
+            if (g_showRaw || sel->state == Staging::State::Failed) {
+                pane = Pane::Raw;
             }
+            if (g_bufferFor != sel->refFormID || g_bufferPane != pane) {
+                FillReviewBuffer(*sel, pane);
+            }
+            ImGuiMCP::Spacing();
+            ImGuiMCP::SeparatorText(pane == Pane::Raw        ? "The model's reply"
+                                    : pane == Pane::Existing ? "Their bio (unchanged)"
+                                                             : "The bio");
 
             // Reserve the last line for the buttons; the rest scrolls.
             if (ImGuiMCP::BeginChild("bioforge_reader_text", ImGuiMCP::ImVec2(0.0f, -36.0f))) {
@@ -757,8 +855,9 @@ namespace BioForge::UI
             }
             ImGuiMCP::SameLine();
 
-            if (!sel->blocksOnly) {
-                if (ImGuiMCP::Button(g_showRaw ? "Show bio" : "Show raw reply")) {
+            if (sel->state != Staging::State::Failed) {
+                if (ImGuiMCP::Button(g_showRaw ? (sel->blocksOnly ? "Show their bio" : "Show bio")
+                                               : "Show raw reply")) {
                     g_showRaw   = !g_showRaw;
                     g_bufferFor = 0;
                 }
@@ -876,10 +975,32 @@ namespace BioForge::UI
                 for (const auto& e : a_staged) {
                     ImGuiMCP::PushID(static_cast<int>(e.refFormID));
 
-                    char label[192]{};
-                    std::snprintf(label, sizeof(label), "%-28s %s%s%s%s%s", e.name.c_str(),
-                                  e.blocksOnly ? "blocks " : "",
-                                  StateLabel(e.state),
+                    // "4 blocks, 1 changed, 1 dropped": what the review did,
+                    // without opening it.
+                    std::string blocks;
+                    if (e.state == Staging::State::Staged && !e.blocks.empty()) {
+                        using V = BlockRules::Verdict;
+                        const auto count = [&](auto a_pred) {
+                            return std::count_if(e.blocks.begin(), e.blocks.end(), a_pred);
+                        };
+                        const auto applies = count([](const auto& b) { return b.Applies(); });
+                        const auto changed = count([](const auto& b) {
+                            return b.verdict == V::Changed || b.verdict == V::Added;
+                        });
+                        const auto dropped = count([](const auto& b) { return b.verdict == V::Dropped; });
+                        blocks = std::format(", {} block{}", applies, applies == 1 ? "" : "s");
+                        if (changed > 0) {
+                            blocks += std::format(", {} changed", changed);
+                        }
+                        if (dropped > 0) {
+                            blocks += std::format(", {} dropped", dropped);
+                        }
+                    }
+
+                    char label[256]{};
+                    std::snprintf(label, sizeof(label), "%-28s %s%s%s%s%s%s", e.name.c_str(),
+                                  e.blocksOnly ? "blocks review " : "",
+                                  StateLabel(e.state), blocks.c_str(),
                                   e.committing ? ", committing" : "",
                                   e.refined ? ", ties revised" : "",
                                   e.committed ? (e.blocksOnly ? ", applied" : ", committed") : "");

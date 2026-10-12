@@ -107,11 +107,14 @@ namespace BioForge
         // file I/O, like RecordGenerated: the reply goes to response.raw.txt,
         // the settled blocks to blocks.txt, and the entry is staged for the
         // player to read and commit. a_rawResponse may be empty when there
-        // was nothing for a model to decide (facts only).
+        // was nothing for a model to decide (facts only). a_existingBio is
+        // the bio the review read, kept so the reader can show it beside the
+        // verdicts. Dropped rolls stay in a_blocks (Verdict::Dropped) for the
+        // reader; commit skips them.
         void RecordBlocks(std::uint32_t a_refFormID, std::string_view a_contextJson,
                           std::string_view a_rawResponse,
                           const std::vector<BlockRules::Choice>& a_blocks,
-                          std::string_view a_blocksNote);
+                          std::string_view a_blocksNote, std::string_view a_existingBio);
 
         // Fail an entry (queue refusal, LLM error, no UUID...). a_reason is the
         // error string, possibly SkyrimNet's own text.
@@ -182,6 +185,9 @@ namespace BioForge
 
         // The raw LLM response, for when a parse failed and the reason matters.
         std::string ReadRawResponse(const Entry& a_entry);
+
+        // A blocks review's copy of the bio it was checked against.
+        std::string ReadExistingBio(const Entry& a_entry);
 
         // Read a staged bio's own text, by reference rather than by Entry.
         // Empty when nothing is staged for it.

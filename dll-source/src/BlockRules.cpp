@@ -725,8 +725,9 @@ namespace BioForge::BlockRules
                 c.title  = b->title;
                 c.group  = g.name;
                 c.tabs   = tabs;
-                c.source = "fact: " + (fact->when.empty() ? std::string{ "always" }
-                                                           : Labels(fact->when));
+                c.verdict = Verdict::Fact;
+                c.reason  = fact->when.empty() ? std::string{ "always" } : Labels(fact->when);
+                c.source  = "fact: " + c.reason;
                 plan.facts.push_back(std::move(c));
                 continue;
             }
@@ -926,7 +927,8 @@ namespace BioForge::BlockRules
         {
             Kept,
             Replaced,
-            Added
+            Added,
+            Dropped   // still returned, so the reader can show what went
         };
         struct Settled
         {
@@ -979,6 +981,7 @@ namespace BioForge::BlockRules
                 if (rolled) {
                     addNote(m.group + ": dropped " + ShortTitle(m.titles[m.defaultIndex]) +
                             (it->second.reason.empty() ? "" : " (" + it->second.reason + ")"));
+                    settled.push_back({ &m, m.defaultIndex, How::Dropped, it->second.reason });
                 }
                 continue;
             }
@@ -998,22 +1001,30 @@ namespace BioForge::BlockRules
             const auto title = ShortTitle(s.menu->titles[s.index]);
             const auto why = s.reason.empty() ? std::string{ "the evidence" } : s.reason;
             Choice     c;
-            c.key   = s.menu->keys[s.index];
-            c.title = s.menu->titles[s.index];
-            c.group = s.menu->group;
-            c.tabs  = s.menu->tabs;
+            c.key    = s.menu->keys[s.index];
+            c.title  = s.menu->titles[s.index];
+            c.group  = s.menu->group;
+            c.tabs   = s.menu->tabs;
+            c.reason = s.reason;
             switch (s.how) {
             case How::Kept:
-                c.source = "rolled";
+                c.verdict = Verdict::Rolled;
+                c.source  = "rolled";
                 break;
             case How::Replaced:
-                c.source = "replaced the roll: " + why;
-                addNote(s.menu->group + ": " +
-                        ShortTitle(s.menu->titles[s.menu->defaultIndex]) + " -> " + title);
+                c.verdict = Verdict::Changed;
+                c.was     = ShortTitle(s.menu->titles[s.menu->defaultIndex]);
+                c.source  = "replaced " + c.was + ": " + why;
+                addNote(s.menu->group + ": " + c.was + " -> " + title);
                 break;
             case How::Added:
-                c.source = "added: " + why;
+                c.verdict = Verdict::Added;
+                c.source  = "added: " + why;
                 addNote(s.menu->group + ": added " + title);
+                break;
+            case How::Dropped:
+                c.verdict = Verdict::Dropped;
+                c.source  = "dropped: " + why;
                 break;
             }
             out.push_back(std::move(c));
