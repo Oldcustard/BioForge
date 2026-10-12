@@ -192,6 +192,15 @@ namespace BioForge::UI
         constexpr ImGuiMCP::ImVec4 kGapColour{ 1.00f, 0.72f, 0.30f, 1.0f };
         constexpr ImGuiMCP::ImVec4 kHaveColour{ 0.55f, 0.80f, 0.55f, 1.0f };
 
+        // SMF's theme draws popups semi-transparent, so the panel behind a
+        // modal shows through and fights its text - unreadable in the reader.
+        // Every BioForge modal is drawn fully opaque instead.
+        bool BeginOpaqueModal(const char* a_title)
+        {
+            ImGuiMCP::SetNextWindowBgAlpha(1.0f);
+            return ImGuiMCP::BeginPopupModal(a_title, nullptr, 0);
+        }
+
         // A generation is in flight for this reference if a snapshot entry is
         // still Generating - re-queuing the same NPC mid-flight would burn a
         // second LLM call for nothing. A COMMIT in flight is a different
@@ -292,7 +301,7 @@ namespace BioForge::UI
 
             ImGuiMCP::SetNextWindowSize(ImGuiMCP::ImVec2(760.0f, 520.0f),
                                         ImGuiMCP::ImGuiCond_Appearing);
-            if (!ImGuiMCP::BeginPopupModal(kDigestTitle, nullptr, 0)) {
+            if (!BeginOpaqueModal(kDigestTitle)) {
                 return;
             }
 
@@ -720,7 +729,7 @@ namespace BioForge::UI
 
             ImGuiMCP::SetNextWindowSize(ImGuiMCP::ImVec2(900.0f, 660.0f),
                                         ImGuiMCP::ImGuiCond_Appearing);
-            if (!ImGuiMCP::BeginPopupModal(kReaderTitle, nullptr, 0)) {
+            if (!BeginOpaqueModal(kReaderTitle)) {
                 return;
             }
 
@@ -896,7 +905,7 @@ namespace BioForge::UI
                 ImGuiMCP::OpenPopup(kConfirmTitle);
                 g_openDiscardAll = false;
             }
-            if (!ImGuiMCP::BeginPopupModal(kConfirmTitle, nullptr, 0)) {
+            if (!BeginOpaqueModal(kConfirmTitle)) {
                 return;
             }
 
