@@ -102,8 +102,9 @@ a dislike, a phobia, a vice or a temperament, shown beside the bio.
 - 📌 **Applied when you commit**, never before. The reader shows which blocks will be
   applied and why (fact, kept, changed, added or dropped), with the model's reason.
 - 🤝 **Your choices stand.** BioForge never adds to a group (say, Religion) the NPC already
-  has a block in, from you or a faction rule. Remove any block on SeverActions' Bio Blocks
-  page.
+  has a block in, from you or a faction rule, and an NPC who already carries blocks of
+  their own (from you, or from an earlier commit) gets no new rolls: only a fact can
+  still fill a gap. Remove any block on SeverActions' Bio Blocks page.
 - 🔞 **Intimate blocks** (SeverActions' Adult pack) are off by default, never given to
   children. The pack's more extreme entries are weighted to be very rare.
 - 🎭 **Anything can happen, rarely.** Every block is reachable: the odd secret Daedra

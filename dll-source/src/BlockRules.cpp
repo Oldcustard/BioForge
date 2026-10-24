@@ -679,6 +679,8 @@ namespace BioForge::BlockRules
             c.carried = true;
             plan.carried.push_back(std::move(c));
         }
+        const bool decided = std::any_of(carried.begin(), carried.end(),
+                                         [](const SeverBio::Applied& a) { return a.direct; });
 
         // Every group rolls on its own: an NPC who lands every roll gets a
         // block from every group. There is deliberately no cap.
@@ -745,6 +747,16 @@ namespace BioForge::BlockRules
                 c.reason  = fact->when.empty() ? std::string{ "always" } : Labels(fact->when);
                 c.source  = "fact: " + c.reason;
                 plan.facts.push_back(std::move(c));
+                continue;
+            }
+
+            // Someone has already given this NPC their blocks - the player,
+            // or BioForge in an earlier session. Rolling the groups they left
+            // empty would add a little more every launch (the seed changes
+            // per launch), so their flavour is done; a fact can still fill a
+            // gap. A faction rule's grant does not count: it was given to a
+            // whole faction, not decided for this NPC.
+            if (decided) {
                 continue;
             }
 
