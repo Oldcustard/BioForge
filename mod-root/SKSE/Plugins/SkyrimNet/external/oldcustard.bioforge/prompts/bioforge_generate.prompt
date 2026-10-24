@@ -116,13 +116,16 @@ markdown fences.
 ### bio_blocks
 Review the traits listed under "Traits rolled for this person". One line per group you
 answer, using the group names and option numbers from those lists:
-- `group: keep` - keep the rolled trait
-- `group: N (reason)` - replace a roll with option N, or add option N to a group that
-  did not roll
-- `group: drop (reason)` - remove a rolled trait the evidence contradicts
-The reason QUOTES the evidence that contradicts the roll (or names the added trait). A
-change with no reason is ignored and the roll stands. Answer every rolled group. Leave out any group that did not roll and gets
-nothing.
+- `group: keep` - keep the rolled trait. Nothing after it.
+- `group: N ("quoted words")` - replace a roll with option N, or add option N to a
+  group that did not roll
+- `group: drop ("quoted words")` - remove a rolled trait the evidence contradicts
+The brackets hold the evidence's own words that contradict the roll (or name the added
+trait), in quotes. A change with no quote is ignored and the roll stands. For example:
+religion: keep
+phobias: drop ("I've never feared the dark in my life")
+vices: 3 ("drinks himself stupid every night")
+Answer every rolled group. Leave out any group that did not roll and gets nothing.
 
 The rolls came first, for variety, and they stand unless the evidence CONTRADICTS them -
 a devout priestess of Mara rolled as a Namira worshipper, a man whose every line is
@@ -131,7 +134,11 @@ shopkeeper can secretly worship a Daedric Prince. When the evidence is silent, k
 roll and write the person so the trait belongs to them: "no mention of drinking" does not
 contradict Alcoholic, and "disciplined" does not contradict a vice. Never change a trait
 because it seems dark, distasteful or unlikely - the evidence almost never touches
-intimate life, so an intimate roll is almost never contradicted. Changing a roll is the
+intimate life, so an intimate roll is almost never contradicted. Evidence for another
+option is not evidence against the roll: a chief with two wives can still be an
+exhibitionist, a man suspicious of outsiders can still be cruel, a trained warrior can
+still dislike violence. Replace only when the two cannot both be true, never because
+another option fits better. Changing a roll is the
 exception; most reviews keep every one. Add from a group that did not
 roll only when the evidence names it outright - a priestess whose dialogue keeps
 invoking Dibella gets Dibella - never because an option would merely suit them.

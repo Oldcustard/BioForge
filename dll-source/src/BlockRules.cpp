@@ -931,13 +931,37 @@ namespace BioForge::BlockRules
             }
             Answer a;
             auto   value = Trim(line.substr(colon + 1));
-            if (const auto paren = value.find('('); paren != std::string_view::npos) {
-                auto reason = Trim(value.substr(paren + 1));
-                if (!reason.empty() && reason.back() == ')') {
+            // The answer ends at the first "(" or dash separator; the rest is
+            // the reason. Models do not always use the brackets: "keep - it
+            // fits" and "drop (reason) - she is wise" both turn up.
+            static constexpr std::string_view kSeparators[] = { "(", " - ", " \xE2\x80\x94 ",
+                                                                " \xE2\x80\x93 ", "\xE2\x80\x94" };
+            std::size_t cut = std::string_view::npos;
+            for (const auto sep : kSeparators) {
+                cut = (std::min)(cut, value.find(sep));
+            }
+            if (cut != std::string_view::npos) {
+                auto reason = Trim(value.substr(cut));
+                value       = Trim(value.substr(0, cut));
+                // Peel the wrapping: separators, brackets, and the format's
+                // own "(reason)" placeholder when a model copies it.
+                for (bool peeled = true; peeled && !reason.empty();) {
+                    peeled = false;
+                    for (const std::string_view lead : { "(reason)", "reason)", "reason:", "(", "-",
+                                                         "\xE2\x80\x94", "\xE2\x80\x93" }) {
+                        if (reason.size() >= lead.size() &&
+                            Lower(reason.substr(0, lead.size())) == lead) {
+                            reason = Trim(reason.substr(lead.size()));
+                            peeled = true;
+                        }
+                    }
+                }
+                if (!reason.empty() && reason.back() == ')' &&
+                    std::count(reason.begin(), reason.end(), '(') <
+                        std::count(reason.begin(), reason.end(), ')')) {
                     reason.remove_suffix(1);
                 }
                 a.reason = std::string{ Trim(reason) };
-                value    = Trim(value.substr(0, paren));
             }
             while (!value.empty() && (value.back() == '.' || value.back() == ',')) {
                 value.remove_suffix(1);

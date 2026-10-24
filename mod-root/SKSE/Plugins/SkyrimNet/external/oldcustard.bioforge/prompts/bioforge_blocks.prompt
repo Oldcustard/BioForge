@@ -49,6 +49,10 @@ them against the profile - not to pick the traits that fit best.
 - **Never change a trait because it seems dark, distasteful, unlikely or ill-fitting.**
   Profiles almost never discuss intimate life, so an intimate trait is almost never
   contradicted: keep it.
+- **Evidence for another option is not evidence against the roll.** A chief with two
+  wives can still be an exhibitionist; a man suspicious of outsiders can still be cruel;
+  a trained warrior can still dislike violence. Replace only when the roll and the
+  profile cannot both be true - never because another option fits better.
 - **Changing a roll is the exception.** In most reviews every roll is kept.
 - **When a roll is contradicted**, replace it with the option the profile supports, or
   drop it when no option fits.
@@ -64,12 +68,15 @@ after it. No preamble, no markdown fences.
 
 ### bio_blocks
 One line per group you answer, using the group names and option numbers from the lists:
-- `group: keep` - keep the rolled trait
-- `group: N (reason)` - replace a roll with option N, or add option N to a group that did
-  not roll
-- `group: drop (reason)` - remove a rolled trait the profile contradicts
-The reason QUOTES the profile's words that contradict the roll (or name the added
-trait). A change with no reason is ignored and the roll stands.
+- `group: keep` - keep the rolled trait. Nothing after it.
+- `group: N ("quoted words")` - replace a roll with option N, or add option N to a group
+  that did not roll
+- `group: drop ("quoted words")` - remove a rolled trait the profile contradicts
+The brackets hold the profile's own words that contradict the roll (or name the added
+trait), in quotes. A change with no quote is ignored and the roll stands. For example:
+religion: keep
+phobias: drop ("has never feared anything, least of all the dark")
+vices: 3 ("drinks himself stupid every night")
 
 Answer every rolled group. Leave out any group that did not roll and gets nothing.
 
