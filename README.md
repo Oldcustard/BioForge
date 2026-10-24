@@ -90,7 +90,8 @@ a dislike, a phobia, a vice or a temperament, shown beside the bio.
   three. Each game launch deals a fresh roll, which holds for the session;
   **Reroll** in the Blocks column rolls again.
 - 🔎 **Then a model checks the rolls against the evidence.** It keeps each roll unless the
-  NPC's evidence contradicts it, in which case it replaces or drops it. It adds a trait
+  NPC's evidence contradicts it, in which case it replaces or drops it, quoting the
+  words that rule it out (a change with no reason is ignored). It adds a trait
   from a group that didn't roll only when the evidence names it outright: a priestess
   whose dialogue keeps invoking Dibella gets Dibella.
   - For a **new bio**, this happens inside the generation (no extra call), and the bio
@@ -99,7 +100,7 @@ a dislike, a phobia, a vice or a temperament, shown beside the bio.
     button) makes one small call against that bio. The result goes into the review list,
     and the bio itself is never changed.
 - 📌 **Applied when you commit**, never before. The reader shows which blocks will be
-  applied and why: rolled, replaced or added, with the model's reason.
+  applied and why (fact, kept, changed, added or dropped), with the model's reason.
 - 🤝 **Your choices stand.** BioForge never adds to a group (say, Religion) the NPC already
   has a block in, from you or a faction rule. Remove any block on SeverActions' Bio Blocks
   page.
