@@ -6,6 +6,7 @@
 #include <string_view>
 #include <vector>
 
+#include "BlockRules.h"
 #include "ContentLibrary.h"
 
 namespace BioForge
@@ -42,6 +43,14 @@ namespace BioForge
             bool          committing{};  // a commit HTTP call is in flight
             bool          committed{};
             bool          refined{};     // ties rewritten by the second pass
+            // SeverActions bio blocks settled for this bio (facts plus the
+            // flavour the model kept or chose). Applied on commit.
+            std::vector<BlockRules::Choice> blocks;
+            std::string                     blocksNote;   // apply outcome
+            // A blocks review for an NPC who already HAS a bio: no bio.prompt
+            // in the bundle, and committing applies the blocks and nothing
+            // else - the existing bio is never touched.
+            bool                            blocksOnly{};
         };
 
         // <Data>/SKSE/Plugins/BioForge/staging, resolved from this DLL's own
@@ -60,6 +69,12 @@ namespace BioForge
         // uppercase hex digits (torg_strong-arm_9A8 <- 0x680059A8).
         std::string BioFileName(const Candidate& a_candidate);
 
+        // The extra `### bio_blocks` section the generate prompt asks for
+        // first: the model's settlement of the open bio-block menus. It is
+        // not a bio block - ParseResponse skips it - and is read separately
+        // with ExtractSection(raw, kBioBlocksSection).
+        inline constexpr std::string_view kBioBlocksSection = "bio_blocks";
+
         // Parse an LLM response into the ten blocks and render it as a
         // {% block %} character bio in the corpus format. Lines before the
         // first `###` heading are treated as preamble and dropped; ``` fences
@@ -71,17 +86,35 @@ namespace BioForge
         // --- lifecycle, callable from any thread ---
 
         // Register an in-flight generation (called when the LLM task is queued).
+        // a_blocksOnly marks a blocks review rather than a bio.
         void Begin(std::uint32_t a_refFormID, std::string_view a_name,
-                   std::string_view a_fileName);
+                   std::string_view a_fileName, bool a_blocksOnly = false);
 
         // Complete an entry from the LLM worker thread. Pure file I/O - no
         // RE:: calls. Writes the staging bundle (bio.prompt on a clean parse,
         // plus response.raw.txt and harvest.json either way, so a bad response
         // can still be inspected and retried). Empty a_bioText marks the entry
         // Failed with the missing blocks named in a_missing.
+        // a_blocks are the settled bio blocks, written to blocks.txt beside
+        // the bio and carried on the entry until commit applies them.
         void RecordGenerated(std::uint32_t a_refFormID, std::string_view a_contextJson,
                              std::string_view a_rawResponse, const std::string& a_bioText,
-                             const std::vector<std::string>& a_missing);
+                             const std::vector<std::string>& a_missing,
+                             const std::vector<BlockRules::Choice>& a_blocks,
+                             std::string_view a_blocksNote);
+
+        // Complete a blocks review (an entry begun with a_blocksOnly). Pure
+        // file I/O, like RecordGenerated: the reply goes to response.raw.txt,
+        // the settled blocks to blocks.txt, and the entry is staged for the
+        // player to read and commit. a_rawResponse may be empty when there
+        // was nothing for a model to decide (facts only). a_existingBio is
+        // the bio the review read, kept so the reader can show it beside the
+        // verdicts. Dropped rolls stay in a_blocks (Verdict::Dropped) for the
+        // reader; commit skips them.
+        void RecordBlocks(std::uint32_t a_refFormID, std::string_view a_contextJson,
+                          std::string_view a_rawResponse,
+                          const std::vector<BlockRules::Choice>& a_blocks,
+                          std::string_view a_blocksNote, std::string_view a_existingBio);
 
         // Fail an entry (queue refusal, LLM error, no UUID...). a_reason is the
         // error string, possibly SkyrimNet's own text.
@@ -109,6 +142,12 @@ namespace BioForge
         // outcome lands in the entry's committed/note fields by the next
         // Snapshot. Returns false only when there is nothing staged to commit;
         // a transport failure is reported through the note.
+        //
+        // When the commit lands, the entry's bio blocks are applied through
+        // SeverActions (if blocks are enabled) - the one moment BioForge
+        // applies blocks to a new bio, because the API asks for exactly that:
+        // once, on the player's own action. A blocksOnly entry skips the bio
+        // write and only applies its blocks.
         bool Commit(const Entry& a_entry);
 
         // Pull the body of one `{% block %}` out of .prompt text. Empty when
@@ -146,6 +185,9 @@ namespace BioForge
 
         // The raw LLM response, for when a parse failed and the reason matters.
         std::string ReadRawResponse(const Entry& a_entry);
+
+        // A blocks review's copy of the bio it was checked against.
+        std::string ReadExistingBio(const Entry& a_entry);
 
         // Read a staged bio's own text, by reference rather than by Entry.
         // Empty when nothing is staged for it.

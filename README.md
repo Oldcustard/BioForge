@@ -77,12 +77,49 @@ every bio generated there.
   **Generate** never builds one, but uses one if it's already there.
 - 🛠️ Panel buttons: **Build digest**, **View digest**, **Rebuild**.
 
+## 🧩 Bio blocks (SeverActions)
+
+With [SeverActions](https://github.com/Severause/SeverActions) installed (Bio Blocks API
+v4), BioForge also gives NPCs SeverActions **bio blocks**: short traits like a religion,
+a dislike, a phobia, a vice or a temperament, shown beside the bio.
+
+- ✅ **Facts come from game data.** A Vigilant of Stendarr worships Stendarr, a
+  Stormcloak dislikes the Empire, someone with the drunk voice is an alcoholic.
+- 🎲 **Flavour is rolled first**, for variety. Each trait group (religion, temperament,
+  dislikes, phobias, vices...) rolls on its own chance, so an average NPC gets two or
+  three. Each game launch deals a fresh roll, which holds for the session;
+  **Reroll** in the Blocks column rolls again.
+- 🔎 **Then a model checks the rolls against the evidence.** It keeps each roll unless the
+  NPC's evidence contradicts it, in which case it replaces or drops it. It adds a trait
+  from a group that didn't roll only when the evidence names it outright: a priestess
+  whose dialogue keeps invoking Dibella gets Dibella.
+  - For a **new bio**, this happens inside the generation (no extra call), and the bio
+    is written to match.
+  - For an **NPC that already has a bio**, **Review blocks** (per row, or a batch
+    button) makes one small call against that bio. The result goes into the review list,
+    and the bio itself is never changed.
+- 📌 **Applied when you commit**, never before. The reader shows which blocks will be
+  applied and why: rolled, replaced or added, with the model's reason.
+- 🤝 **Your choices stand.** BioForge never adds to a group (say, Religion) the NPC already
+  has a block in, from you or a faction rule. Remove any block on SeverActions' Bio Blocks
+  page.
+- 🔞 **Intimate blocks** (SeverActions' Adult pack) are off by default, never given to
+  children. The pack's more extreme entries are weighted to be very rare.
+- 🎭 **Anything can happen, rarely.** Every block is reachable: the odd secret Daedra
+  worshipper or cowardly guard turns up, just not often. Rare sets share a fixed
+  "pool" (any Daedric Prince: about 1 NPC in 40), so they're ones you actually meet.
+- ✏️ The rules live in `SKSE/Plugins/BioForge/block_rules.ini`, a commented text file
+  you can edit. `tools/block_odds.py` (in the source repo) prints how often each block
+  comes up for a given kind of NPC. Without SeverActions, none of this appears.
+
 ## 📦 Requirements
 
 - [SkyrimNet](https://goncalo22.github.io/SkyrimNet-GamePlugin/) **Beta 25+** (API v10+)
 - SKSE and Address Library for SKSE Plugins
 - [SKSE Menu Framework](https://www.nexusmods.com/skyrimspecialedition/mods/120352) v3,
   which provides the whole UI (BioForge adds no hotkey of its own)
+- *Optional:* [SeverActions](https://github.com/Severause/SeverActions) with Bio Blocks
+  API v4, for bio blocks
 
 > ⬆️ **Upgrading from Beta 24?** Old committed bios in
 > `SKSE/Plugins/SkyrimNet/prompts/characters/` are no longer read. Use SkyrimNet's
@@ -110,6 +147,9 @@ with no restart.
 | Use regional digests | `digest.enabled` | `true` |
 | Build digest before a batch | `digest.autoBuild` | `true` |
 | Bios harvested per digest | `digest.maxCandidates` | `120` |
+| Use bio blocks | `blocks.enabled` | `true` |
+| Intimate blocks | `blocks.intimate` | `false` |
+| Intimate block chance (%) | `blocks.intimateChance` | `50` |
 
 - 🐢 Lower `generate.maxConcurrent` if your provider rate-limits you. Raise it for a local
   model.
@@ -171,10 +211,12 @@ dll-source/src/
   RegionDigest        per-settlement reference sheet
   StagingStore        response parsing, staging, commit
   SkyrimNetAPI / Web  SkyrimNet's C API and its loopback content API
+  BlockRules          bio-block rules: facts, rolls, the model's review
+  SeverBio            SeverActions' bio blocks API, through the Papyrus VM
   Config              settings from SkyrimNet's config store
 dll-source/include/   vendored SkyrimNet and SMF headers
 mod-root/             shipped verbatim into the mod
-tools/                prompt and ranking probes
+tools/                prompt, ranking and block-odds probes
 ```
 
 ## 📄 License

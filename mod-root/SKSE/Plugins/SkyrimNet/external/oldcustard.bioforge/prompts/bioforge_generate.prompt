@@ -17,6 +17,15 @@
                               the NPC's AI packages and the reference's editor
                               location. NEVER empty - when the record says
                               nothing, it says so in words
+     bioBlocksFixed (string)  bullet lines: SeverActions bio blocks this NPC
+                              already carries or gets from game data (facts).
+                              May be ""
+     bioBlocksReview (string) the flavour traits rolled for this NPC, each with
+                              its group's numbered options, then the groups
+                              that did not roll. May be "" - and then the
+                              model is never asked for a bio_blocks section.
+                              The DLL reads the answer back out of the reply
+                              and checks it against these same lists
 
    ROLE MARKERS ARE MANDATORY. SkyrimNet splits a rendered prompt into chat
    messages on "[ system ]" / "[ user ]" lines. Without them the messages array
@@ -99,10 +108,42 @@ as a character sheet an actor could play from, not as an encyclopedia entry.
 
 # Output format
 
-Output EXACTLY the ten sections below, each introduced by its `###` heading on its own
+{% if length(bioBlocksReview) > 0 %}Output a `### bio_blocks` section FIRST, then EXACTLY the ten sections below, each
+introduced by its `###` heading on its own line, in this order, with nothing before the
+first heading and nothing after the last section. No preamble, no commentary, no
+markdown fences.
+
+### bio_blocks
+Review the traits listed under "Traits rolled for this person". One line per group you
+answer, using the group names and option numbers from those lists:
+- `group: keep` - keep the rolled trait
+- `group: N (reason)` - replace a roll with option N, or add option N to a group that
+  did not roll
+- `group: drop (reason)` - remove a rolled trait the evidence contradicts
+The reason QUOTES the evidence that contradicts the roll (or names the added trait). A
+change with no reason is ignored and the roll stands. Answer every rolled group. Leave out any group that did not roll and gets
+nothing.
+
+The rolls came first, for variety, and they stand unless the evidence CONTRADICTS them -
+a devout priestess of Mara rolled as a Namira worshipper, a man whose every line is
+bravado rolled as cowardly. Unusual is not a contradiction: a guard can be a coward, a
+shopkeeper can secretly worship a Daedric Prince. When the evidence is silent, keep the
+roll and write the person so the trait belongs to them: "no mention of drinking" does not
+contradict Alcoholic, and "disciplined" does not contradict a vice. Never change a trait
+because it seems dark, distasteful or unlikely - the evidence almost never touches
+intimate life, so an intimate roll is almost never contradicted. Changing a roll is the
+exception; most reviews keep every one. Add from a group that did not
+roll only when the evidence names it outright - a priestess whose dialogue keeps
+invoking Dibella gets Dibella - never because an option would merely suit them.
+
+These traits are rendered beside the profile as separate blocks. Write the ten sections
+CONSISTENT with what you settle here - never contradict a trait - but do not restate
+them: the block already says it. A secret stays secret: a hidden Daedric worshipper's
+profile can hint, but should not announce it.
+{% else %}Output EXACTLY the ten sections below, each introduced by its `###` heading on its own
 line, in this order, with nothing before the first heading and nothing after the last
 section. No preamble, no commentary, no markdown fences.
-
+{% endif %}
 These are SkyrimNet's own bio blocks and its own target lengths. The finished bio is
 injected into every conversation this NPC ever has, so length is a permanent running
 cost - hit the targets rather than writing long.
@@ -360,6 +401,21 @@ here.
 {{ worldKnowledge }}
 {% endif %}{% if length(relatedActors) > 0 %}## People they have been around
 {{ relatedActors }}
+{% endif %}{% if length(bioBlocksFixed) > 0 %}## Traits shown alongside this profile
+{# SeverActions bio blocks: ones the NPC already carries, and ones that follow from
+   game data (a Vigilant worships Stendarr). They render beside the bio as their own
+   blocks, so the bio must agree with them without repeating them. #}
+{{ bioBlocksFixed }}
+These are already part of who this person is and are shown beside the profile you write.
+Stay consistent with them; do not repeat them.
+{% endif %}{% if length(bioBlocksReview) > 0 %}## Traits rolled for this person
+{# The seeded flavour rolls, each with its group's options, then the groups that did
+   not roll. The model keeps a roll unless the evidence contradicts it and adds only on
+   named evidence; the DLL checks every answer against these lists and keeps the roll
+   on anything it cannot read. #}
+{{ bioBlocksReview }}
+Review these in the `bio_blocks` section, against everything above: dialogue first,
+then factions, where they belong, what they wear and who they are around.
 {% endif %}
-Write the ten sections for this NPC now.
+{% if length(bioBlocksReview) > 0 %}Write the bio_blocks section, then the ten sections, for this NPC now.{% else %}Write the ten sections for this NPC now.{% endif %}
 [ end user ]

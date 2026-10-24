@@ -26,7 +26,7 @@
 
 plugin:
   name: BioForge
-  version: "1.0.2"
+  version: "1.1.0"
   description: "Writes SkyrimNet character bios for mod-added NPCs that have none, from the characterisation their own mod already authored — dialogue, factions, outfit, location."
 
 variants:
@@ -120,3 +120,33 @@ schema:
       min: 20
       max: 400
       category: "Regional digest"
+
+    # ---- Bio blocks (SeverActions) -----------------------------------------
+    # SeverActions' Bio Blocks are short traits (religion, dislikes, phobias,
+    # vices, temperament...) rendered beside an NPC's bio. BioForge picks them
+    # from SKSE/Plugins/BioForge/block_rules.ini, has a model review the rolls
+    # against the evidence, and applies them through SeverActions' API on
+    # commit - for a new bio, or after "Review blocks" for an NPC that already
+    # has one. Needs SeverActions with Bio Blocks API v4.
+    - name: "Use Bio Blocks"
+      path: "blocks.enabled"
+      type: "bool"
+      description: "Give NPCs SeverActions bio blocks alongside their bios. Facts come from game data (a Vigilant of Stendarr worships Stendarr, a Stormcloak dislikes the Empire); flavour is rolled at random for variety, then a model checks the rolls against the NPC's evidence - keeping them unless contradicted, and adding one only where the evidence names it. For a new bio that check rides the generation; for an NPC who already has a bio, Review blocks makes one small call. Nothing is applied until you commit, and blocks can be removed on SeverActions' Bio Blocks page. Needs SeverActions installed; without it this does nothing."
+      defaultValue: true
+      category: "Bio blocks"
+
+    - name: "Intimate Blocks"
+      path: "blocks.intimate"
+      type: "bool"
+      description: "Also roll blocks from SeverActions' Adult pack (sexual behaviour, kinks and dislikes). Never for children. SeverActions only shows these in a bio while its own intimacy setting is on. The more extreme entries in that pack are weighted to be very rare."
+      defaultValue: false
+      category: "Bio blocks"
+
+    - name: "Intimate Block Chance"
+      path: "blocks.intimateChance"
+      type: "int"
+      description: "How often intimate blocks appear, when Intimate Blocks is on: the percent chance for an intimate group (behaviour, kinks, dislikes) to give an NPC a block. block_rules.ini can make one group a share of this - sexual dislikes, with only four options, roll at a third of it by default."
+      defaultValue: 50
+      min: 0
+      max: 100
+      category: "Bio blocks"

@@ -3,6 +3,7 @@
 #include "Generator.h"
 #include "Placement.h"
 
+#include "BlockRules.h"
 #include "Config.h"
 #include "ContentLibrary.h"
 #include "Json.h"
@@ -28,6 +29,57 @@ namespace BioForge::Generator
         // rewritten - it is the one block whose content is about other people.
         constexpr auto kRefinePrompt = "bioforge_refine_ties"sv;
         constexpr auto kRefineBlock  = "relationships"sv;
+
+        // A blocks review for an NPC who already has a bio: the rolled bio
+        // blocks, checked against that bio. Small - no harvest, no roster.
+        constexpr auto kBlocksPrompt = "bioforge_blocks"sv;
+
+        // An existing bio as prompt text: the {% block %} markup becomes
+        // plain labels, and any other template syntax is stripped, because
+        // the reader of this is a model and not the renderer. Capped - a
+        // bio is ~4KB, and anything far past that is not a bio.
+        std::string BioForPrompt(std::string_view a_text)
+        {
+            std::string out;
+            std::size_t pos = 0;
+            while (pos < a_text.size()) {
+                const auto open = a_text.find('{', pos);
+                if (open == std::string_view::npos || open + 1 >= a_text.size()) {
+                    out += a_text.substr(pos);
+                    break;
+                }
+                out += a_text.substr(pos, open - pos);
+                const char kind = a_text[open + 1];
+                if (kind != '%' && kind != '{' && kind != '#') {
+                    out += '{';
+                    pos = open + 1;
+                    continue;
+                }
+                const char        closer = kind == '{' ? '}' : kind;
+                const std::string end{ closer, '}' };
+                const auto        close = a_text.find(end, open + 2);
+                if (close == std::string_view::npos) {
+                    break;
+                }
+                // "{% block personality %}" -> "personality:"
+                auto tag = a_text.substr(open + 2, close - open - 2);
+                while (!tag.empty() && (tag.front() == ' ' || tag.front() == '-')) {
+                    tag.remove_prefix(1);
+                }
+                if (kind == '%' && tag.starts_with("block ")) {
+                    auto name = tag.substr(6);
+                    while (!name.empty() && (name.back() == ' ' || name.back() == '-')) {
+                        name.remove_suffix(1);
+                    }
+                    out += std::string{ name } + ": ";
+                }
+                pos = close + 2;
+            }
+            if (out.size() > 8000) {
+                out.resize(8000);
+            }
+            return out;
+        }
 
         // Pull the string values of one key out of a flat JSON array of
         // objects. Deliberately a scanner and not a parser: the two payloads
@@ -133,7 +185,8 @@ namespace BioForge::Generator
         std::string BuildContext(const Candidate&              a_candidate,
                                  const std::vector<Candidate>& a_roster,
                                  const RosterSummaries&        a_summaries,
-                                 std::string_view              a_regionDigest)
+                                 std::string_view              a_regionDigest,
+                                 const BlockRules::Plan&       a_blocks)
         {
             const auto uuid = SN::FormIDToUUID(a_candidate.refFormID);
             if (uuid == 0) {
@@ -238,7 +291,14 @@ namespace BioForge::Generator
                    // Who matters in this settlement, written once and reused by
                    // every bio generated here. Already bullet lines, so it is
                    // safe to drop straight into a heading's body.
-                   + "\"regionDigest\":\"" + Json::Escape(a_regionDigest) + "\"}";
+                   + "\"regionDigest\":\"" + Json::Escape(a_regionDigest) + "\","
+                   // SeverActions bio blocks: the ones already fixed (carried
+                   // or a fact), and the rolls the model reviews against the
+                   // evidence in its `### bio_blocks` section. Both "" when
+                   // blocks are off or SeverActions is absent - the template
+                   // then drops both sections and never asks for the answer.
+                   + "\"bioBlocksFixed\":\"" + Json::Escape(BlockRules::FixedForPrompt(a_blocks)) + "\","
+                   + "\"bioBlocksReview\":\"" + Json::Escape(BlockRules::ReviewForPrompt(a_blocks)) + "\"}";
         }
     }
 
@@ -251,7 +311,8 @@ namespace BioForge::Generator
         enum class Kind
         {
             Generate,   // write the whole bio
-            Refine      // rewrite one block of an already-staged bio
+            Refine,     // rewrite one block of an already-staged bio
+            Blocks      // review rolled bio blocks against an existing bio
         };
 
         struct Job
@@ -264,6 +325,11 @@ namespace BioForge::Generator
             // Stamped at assembly on the main thread, like everything else in
             // a Job: Pump also runs from completion callbacks on workers.
             std::string   variant;
+            // The bio-block plan the prompt was given. The completion reads
+            // the model's answer against THIS, never against the world.
+            BlockRules::Plan blocks;
+            // Blocks: the bio the review reads, kept for the reader.
+            std::string      subjectBio;
         };
 
         // A staged bio whose relationships block needs re-asking, and the
@@ -313,6 +379,7 @@ namespace BioForge::Generator
                                std::string_view              a_digest);
 
         void OnComplete(Kind a_kind, std::uint32_t a_refFormID, const std::string& a_context,
+                        const BlockRules::Plan& a_blocks, const std::string& a_subjectBio,
                         const char* a_response, int a_success)
         {
             if (a_kind == Kind::Refine) {
@@ -338,6 +405,30 @@ namespace BioForge::Generator
                 return;
             }
 
+            if (a_kind == Kind::Blocks) {
+                if (!a_response || a_success == 0) {
+                    Staging::RecordFailed(a_refFormID,
+                                          a_response ? a_response : "empty response");
+                } else {
+                    // The reply IS the section; a model that left the heading
+                    // off still answered, so read the whole text then.
+                    const std::string raw{ a_response };
+                    auto section = Staging::ExtractSection(raw, Staging::kBioBlocksSection);
+                    if (section.empty()) {
+                        section = raw;
+                    }
+                    std::string note;
+                    const auto  blocks = BlockRules::Resolve(a_blocks, section, note);
+                    Staging::RecordBlocks(a_refFormID, a_context, raw, blocks, note, a_subjectBio);
+                }
+                {
+                    std::lock_guard lock{ g_queueMutex };
+                    --g_inFlight;
+                }
+                Pump();
+                return;
+            }
+
             if (!a_response || a_success == 0) {
                 Staging::RecordFailed(a_refFormID, a_response ? a_response : "empty response");
             } else {
@@ -345,7 +436,21 @@ namespace BioForge::Generator
                 std::string              bio;
                 std::vector<std::string> missing;
                 Staging::ParseResponse(raw, bio, missing);
-                Staging::RecordGenerated(a_refFormID, a_context, raw, bio, missing);
+
+                // Settle the open block groups from the model's answer. Pure
+                // string work against the job's own plan - nothing here may
+                // look at the world from this worker thread.
+                std::string                    blocksNote;
+                std::vector<BlockRules::Choice> blocks;
+                if (!a_blocks.Empty() || !a_blocks.menus.empty()) {
+                    blocks = BlockRules::Resolve(
+                        a_blocks, Staging::ExtractSection(raw, Staging::kBioBlocksSection),
+                        blocksNote);
+                    logs::info("blocks: {:08X} - {} block(s){}{}"sv, a_refFormID, blocks.size(),
+                               blocksNote.empty() ? "" : " - ", blocksNote);
+                }
+                Staging::RecordGenerated(a_refFormID, a_context, raw, bio, missing, blocks,
+                                         blocksNote);
             }
 
             {
@@ -376,16 +481,20 @@ namespace BioForge::Generator
 
                 // A refine must NOT call Begin: the entry already exists and
                 // holds the staging bundle this pass is about to edit.
-                if (job.kind == Kind::Generate) {
-                    Staging::Begin(job.refFormID, job.name, job.fileName);
+                if (job.kind != Kind::Refine) {
+                    Staging::Begin(job.refFormID, job.name, job.fileName,
+                                   job.kind == Kind::Blocks);
                 }
 
+                const auto prompt = job.kind == Kind::Refine ? kRefinePrompt
+                                    : job.kind == Kind::Blocks ? kBlocksPrompt
+                                                               : kPromptName;
                 const bool queued = SN::SendCustomPrompt(
-                    job.kind == Kind::Refine ? kRefinePrompt.data() : kPromptName.data(),
+                    prompt.data(),
                     job.variant.c_str(), job.contextJson.c_str(),
-                    [kind = job.kind, ref = job.refFormID,
-                     ctx = job.contextJson](const char* a_response, int a_success) {
-                        OnComplete(kind, ref, ctx, a_response, a_success);
+                    [kind = job.kind, ref = job.refFormID, ctx = job.contextJson,
+                     plan = job.blocks, bio = job.subjectBio](const char* a_response, int a_success) {
+                        OnComplete(kind, ref, ctx, plan, bio, a_response, a_success);
                     });
 
                 if (!queued) {
@@ -405,7 +514,9 @@ namespace BioForge::Generator
                 }
 
                 logs::info("{}: task queued for {} ({})"sv,
-                           job.kind == Kind::Refine ? "refine"sv : "generate"sv,
+                           job.kind == Kind::Refine   ? "refine"sv
+                           : job.kind == Kind::Blocks ? "blocks"sv
+                                                      : "generate"sv,
                            job.name, job.fileName);
             }
         }
@@ -415,10 +526,20 @@ namespace BioForge::Generator
                       const RosterSummaries& a_summaries, std::string_view a_regionDigest,
                       Job& a_job)
         {
-            const auto context = BuildContext(a_candidate, a_roster, a_summaries, a_regionDigest);
+            // Bio blocks are picked here, on the main thread, because the
+            // rules read factions, race and voice. Facts are fixed now; the
+            // flavour rolls go to the model to review against the evidence.
+            BlockRules::Plan blocks;
+            if (auto* actor = RE::TESForm::LookupByID<RE::Actor>(a_candidate.refFormID)) {
+                blocks = BlockRules::Pick(actor);
+            }
+
+            const auto context =
+                BuildContext(a_candidate, a_roster, a_summaries, a_regionDigest, blocks);
             if (context.empty()) {
                 return false;
             }
+            a_job.blocks = std::move(blocks);
 
             a_job.refFormID   = a_candidate.refFormID;
             a_job.name        = a_candidate.name;
@@ -629,6 +750,80 @@ namespace BioForge::Generator
         logs::info("generate: queued {} of {} candidate(s) for batch generation"sv,
                    queued, a_candidates.size());
         return queued;
+    }
+
+    std::size_t ReviewBlocks(const std::vector<Candidate>& a_candidates)
+    {
+        if (!Ready()) {
+            return 0;
+        }
+
+        // One library sweep for the whole set: the bio each review reads.
+        ContentLibrary::Index library;
+        library.Build();
+
+        std::vector<Job> jobs;
+        std::size_t      settled = 0;
+        for (const auto& c : a_candidates) {
+            auto* actor = RE::TESForm::LookupByID<RE::Actor>(c.refFormID);
+            if (!actor) {
+                continue;
+            }
+            auto plan = BlockRules::Pick(actor);
+            if (plan.Empty() && plan.menus.empty()) {
+                continue;   // no rule applies, or every group is covered
+            }
+
+            const auto fileName = Staging::BioFileName(c);
+            const auto review   = BlockRules::ReviewForPrompt(plan);
+
+            std::string bio;
+            if (const auto* file = library.Find(c.wouldWriteAs)) {
+                bio = BioForPrompt(ContentLibrary::ReadBioFile(file->path));
+            }
+
+            // Facts only: nothing for a model to decide, so stage them now
+            // rather than spend a call confirming them.
+            if (review.empty()) {
+                Staging::Begin(c.refFormID, c.name, fileName, true);
+                Staging::RecordBlocks(c.refFormID, {}, {}, plan.ToApply(), "facts only", bio);
+                ++settled;
+                continue;
+            }
+
+            if (bio.empty()) {
+                logs::warn("blocks: {} has no readable bio - skipped"sv, c.name);
+                continue;
+            }
+
+            Job job;
+            job.kind      = Kind::Blocks;
+            job.refFormID = c.refFormID;
+            job.name      = c.name;
+            job.fileName  = fileName;
+            job.variant   = Config::LlmVariant();
+            job.contextJson =
+                std::string{ "{" } + "\"subjectName\":\"" + Json::Escape(c.name) + "\"," +
+                "\"subjectRace\":\"" + Json::Escape(c.race) + "\"," +
+                "\"existingBio\":\"" + Json::Escape(bio) + "\"," +
+                "\"bioBlocksFixed\":\"" + Json::Escape(BlockRules::FixedForPrompt(plan)) + "\"," +
+                "\"bioBlocksReview\":\"" + Json::Escape(review) + "\"}";
+            job.blocks     = std::move(plan);
+            job.subjectBio = std::move(bio);
+            jobs.push_back(std::move(job));
+        }
+
+        const auto queued = jobs.size();
+        {
+            std::lock_guard lock{ g_queueMutex };
+            for (auto& job : jobs) {
+                g_queue.push_back(std::move(job));
+            }
+        }
+        Pump();
+        logs::info("blocks: {} review(s) queued, {} settled without a call, of {} NPC(s)"sv,
+                   queued, settled, a_candidates.size());
+        return queued + settled;
     }
 
     namespace
