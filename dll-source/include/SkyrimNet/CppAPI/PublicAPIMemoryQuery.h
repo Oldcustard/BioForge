@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2025-2026 Fateless.Ai. SkyrimNet's plugin API headers are MIT licensed: include them
+// in any mod, open or closed source. SkyrimNet itself is not open source.
+
 #pragma once
 #include <charconv>
 #include <cstdint>

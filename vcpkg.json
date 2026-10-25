@@ -1,16 +1,10 @@
 {
-  "name": "bioforge",
-  "version": "0.1.0",
-  "builtin-baseline": "ee12231b20c95013c6638d845d04c91559a1d1ff",
+  "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg-tool/main/docs/vcpkg.schema.json",
   "dependencies": [
-    "directxmath",
     "directxtk",
     "fmt",
-    "nlohmann-json",
     "rapidcsv",
-    "simpleini",
-    "spdlog",
-    "toml11",
-    "xbyak"
+
+    { "name": "spdlog", "features": ["wchar"] }
   ]
 }

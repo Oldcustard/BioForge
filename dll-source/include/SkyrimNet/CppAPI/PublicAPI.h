@@ -1,8 +1,13 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2025-2026 Fateless.Ai. SkyrimNet's plugin API headers are MIT licensed: include them
+// in any mod, open or closed source. SkyrimNet itself is not open source.
+
 #pragma once
 #include <string>
 #include <windows.h>
 #include <functional>
 #include "PublicAPIMemoryQuery.h"
+#include "PublicAPIDiaryQuery.h"
 
 /**
  * SkyrimNet Public API — loaded at runtime via LoadLibraryA + GetProcAddress.
@@ -50,7 +55,7 @@ extern "C" {
 // =============================================================================
 
 /**
- * Returns the runtime API version (currently 10).
+ * Returns the runtime API version (currently 12).
  * Version history: 2 = action registration, 3 = data queries + UUID + config,
  *                  4 = diary queries,
  *                  5 = decorator registration + event callbacks + memory creation,
@@ -58,7 +63,10 @@ extern "C" {
  *                  7 = save unique ID + world knowledge CRUD,
  *                  8 = send custom prompt to LLM,
  *                  9 = per-actor world knowledge for prompt enrichment,
- *                 10 = filtered memory queries.
+ *                 10 = filtered memory queries,
+ *                 11 = timeline state, filtered diary queries, diary add/edit/delete,
+ *                      memory edit/delete, actor search, event registration with an audience,
+ *                 12 = send custom decision request to the decision model.
  */
 int (*PublicGetVersion)() = nullptr;
 
@@ -199,15 +207,27 @@ std::string (*PublicQueryMemoriesForActor)(uint32_t formId, const char* queryJSO
  * @param eventTypeFilter Comma-separated event types to include
  *                        (e.g., "dialogue,direct_narration"). Empty = all.
  *
- * @return JSON array of event objects:
+ * @return JSON array of event objects. The event's content is in `data`, parsed as JSON when it is
+ *         JSON (a dialogue line is {"dialogue": "..."}), otherwise the raw string. Actors are UUIDs;
+ *         the two *Name fields are added for convenience.
  * @code
  * [
  *   {
+ *     "id": 4211,
  *     "type": "dialogue",
- *     "text": "Hello, traveler!",
- *     "gameTime": 1234.5,
+ *     "data": { "dialogue": "Hello, traveler!" },
+ *     "location": "Whiterun",
+ *     "actors": [1234..., 5678...],
+ *     "originatingActor": 1234...,
+ *     "targetActor": 5678...,
  *     "originatingActorName": "Lydia",
- *     "targetActorName": "Player"
+ *     "targetActorName": "Player",
+ *     "gameTime": 1234.5,
+ *     "gameTimeStr": "...",
+ *     "localTime": 1727000000.0,
+ *     "localTimeStr": "...",
+ *     "playtime": 3600.0,
+ *     "gameTimeEnd": null
  *   }
  * ]
  * @endcode
@@ -220,17 +240,20 @@ std::string (*PublicGetRecentEvents)(uint32_t formId, int maxCount, const char* 
  * @param formId       NPC's FormID.
  * @param maxExchanges Maximum exchanges to return (<=0 defaults to 10).
  *
- * @return JSON array in chronological order (oldest first):
+ * @return JSON array in chronological order (oldest first). `speaker` is the role ("player" or
+ *         "npc"), not a name; the NPC's name is in `npcName` and the line in `data`:
  * @code
  * [
  *   {
- *     "speaker": "Player",
- *     "text": "What do you think about the war?",
+ *     "speaker": "player",
+ *     "npcName": "Lydia",
+ *     "data": "What do you think about the war?",
  *     "gameTime": 1234.5
  *   },
  *   {
- *     "speaker": "Lydia",
- *     "text": "I follow you, my Thane.",
+ *     "speaker": "npc",
+ *     "npcName": "Lydia",
+ *     "data": "I follow you, my Thane.",
  *     "gameTime": 1234.6
  *   }
  * ]
@@ -374,7 +397,8 @@ std::string (*PublicGetEventPairCounts)(const char* formIdListCSV, int minShared
  *                  0.0 = no upper bound.
  *
  * @return JSON array of diary entry objects. Each entry includes all fields
- *         from DiaryEntry::ToJson() plus an `actor_name` field.
+ *         from DiaryEntry::ToJson() plus an `actor_name` field. v11+ adds
+ *         `updated_at` (seconds since epoch of the last edit, null if never edited).
  */
 std::string (*PublicGetDiaryEntries)(uint32_t formId, int maxCount, double startTime, double endTime) = nullptr;
 
@@ -651,6 +675,232 @@ bool (*PublicSendCustomPromptToLLM)(const char* promptName, const char* variant,
                                     std::function<void(const char* response, int success)> callback) = nullptr;
 
 // =============================================================================
+// Timeline State, Diary Writes, Memory Edits and Actor Search (v11+)
+// =============================================================================
+
+/**
+ * Outcome of the keep/clear timeline check SkyrimNet runs after a save load.
+ *
+ * @return 0 = none (no load yet, new game, or the save had no future history),
+ *         1 = pending (check running, prompt open, or a Clear still deleting),
+ *         2 = kept, 3 = cleared (all future events, memories and diary entries deleted).
+ *         While 1, diary and event queries may still return history a Clear is about to delete,
+ *         and the diary write functions below refuse (return 0/false) until it resolves.
+ *         When the check finishes SkyrimNet fires the ModEvent SkyrimNet_TimelineResolved
+ *         (numArg = state, JSON {"state", "stateName"}); poll this only if you may miss it.
+ */
+int (*PublicGetTimelineState)() = nullptr;
+
+/**
+ * One actor's diary entries with explicit filtering and ordering, the diary counterpart of
+ * PublicQueryMemoriesForActor. Filters apply in SQL before truncation. Prefer the typed
+ * QueryDiaryEntries() wrapper at the bottom of this header (struct in PublicAPIDiaryQuery.h).
+ *
+ * Write order: `orderBy: "IdAsc"` with `minId: lastId + 1` reads the entries stored after one you
+ * have. Ids are AUTOINCREMENT, so id order is the order entries were stored, whatever their
+ * in-game `entry_date`. Guarantees, within one save's database (each playthrough has its own;
+ * ids from different playthroughs are not comparable):
+ *   - A new entry always gets a higher id than every existing entry. No path inserts an explicit id.
+ *   - Ids are never reused, not after a delete and not after a timeline Clear.
+ *   - Editing an entry (PublicUpdateDiaryEntry, the dashboard) keeps its id.
+ * Ids come from one counter for the whole table, so one actor's ids have gaps (12, 15, 31...).
+ * The actor's co-identities (renames, identity links, drifted UUIDs) are merged in. If that set
+ * grows later, older entries can appear with ids below ones you have already read.
+ *
+ * @param formId    Actor FormID (required).
+ * @param queryJSON JSON filter object (see DiaryQuery). Empty or "{}" behaves like
+ *                  PublicGetDiaryEntries(formId, 50, 0, 0).
+ * Unknown keys, mistyped values and unknown orderBy names are ignored, and each one is logged as a
+ * DiaryQueryService warning in SkyrimNet.log with the formId, so check the log if results look unfiltered.
+ *
+ * @return JSON array in the same shape as PublicGetDiaryEntries (id, entry_date, creation_time,
+ *         tags, updated_at, actor_name...). "[]" on error or malformed JSON.
+ */
+std::string (*PublicQueryDiaryEntries)(uint32_t formId, const char* queryJSON) = nullptr;
+
+/**
+ * Add a diary entry for any actor, e.g. one the player wrote. It is treated like a generated
+ * entry: it gets a memory and fires SkyrimNet_DiaryCreated. Blocks while the memory's embedding
+ * is computed; avoid the game thread.
+ * Like the edit and delete below, it returns 0 (and logs why) while PublicGetTimelineState() is 1
+ * or before a save is loaded. Wait for SkyrimNet_TimelineResolved after a load before writing.
+ *
+ * @param formId    Actor FormID whose diary this is. Must be an actor SkyrimNet has already seen
+ *                  (any actor it ever registered, across saves); unknown actors return 0.
+ * @param content   Entry text (required).
+ * @param entryDate In-game date the entry describes, in the units of `entry_date`. 0.0 = now.
+ * @param tagsCSV   Comma-separated tags, stored as given (SkyrimNet adds none). May be null.
+ *                  Use them to mark authorship, e.g. "mymod_player_written".
+ * @param emotion    Entry emotion, e.g. "hopeful". Shown in the event line "(feeling <emotion>)". May be null.
+ * @param importance 0.0-1.0 (clamped); negative = default 0.5. Also the memory's importance.
+ * @param location   Where it was written. May be null.
+ * @return The new entry id, or 0 on error.
+ */
+int (*PublicAddDiaryEntry)(uint32_t formId, const char* content, double entryDate, const char* tagsCSV,
+                           const char* emotion, float importance, const char* location) = nullptr;
+
+/**
+ * Edit any diary entry's text and optionally its tags. Emotion, importance and dates are kept.
+ * Stamps `updated_at`, rebuilds the entry's memory and fires SkyrimNet_DiaryUpdated.
+ * Refused (false) while PublicGetTimelineState() is 1. Blocks while the new text is embedded;
+ * avoid the game thread.
+ *
+ * @param entryId Entry id (`id` in query results).
+ * @param content New text (required; delete the entry instead of blanking it).
+ * @param tagsCSV New comma-separated tags. null = keep the current tags, "" = clear them.
+ * @return true on success.
+ */
+bool (*PublicUpdateDiaryEntry)(int entryId, const char* content, const char* tagsCSV) = nullptr;
+
+/**
+ * Delete any diary entry and its memory. Fires SkyrimNet_DiaryDeleted.
+ * Refused (false) while PublicGetTimelineState() is 1.
+ * @return true on success, false if refused, the entry does not exist, or the delete failed.
+ */
+bool (*PublicDeleteDiaryEntry)(int entryId) = nullptr;
+
+/**
+ * Edit an actor memory (`id` from PublicGetMemoriesForActor / PublicQueryMemoriesForActor).
+ * Only the keys present change; a new `content` is re-embedded for semantic search. Stamps the
+ * memory's `updated_at` and fires SkyrimNet_MemoryUpdated. Blocks while a new `content` is
+ * embedded; avoid the game thread.
+ *
+ * @param memoryId    Memory id.
+ * @param changesJSON JSON object with any of:
+ *                    "content" (string, non-empty), "importance" (0.0-1.0, clamped), "emotion" (string),
+ *                    "location" (string), "tags" (string array, replaces all),
+ *                    "type" ("EXPERIENCE", "RELATIONSHIP", "KNOWLEDGE", "LOCATION", "SKILL", "TRAUMA", "JOY"),
+ *                    "relatedActorFormIds" (FormID array, replaces all).
+ *                    An unknown or mistyped key rejects the whole edit.
+ * @return true on success. false (with the reason in SkyrimNet.log) if the memory does not exist,
+ *         the JSON is invalid, PublicGetTimelineState() is 1, or the memory can't be edited:
+ *         world knowledge (use the world knowledge functions), a plugin-installed row, or a
+ *         diary entry's memory (tag "diary_entry"; edit the entry with PublicUpdateDiaryEntry).
+ *
+ * @code
+ *   PublicUpdateMemory(id, R"({"content":"Lydia saved my life at Bleak Falls.","importance":0.9})");
+ * @endcode
+ */
+bool (*PublicUpdateMemory)(int memoryId, const char* changesJSON) = nullptr;
+
+/**
+ * Delete an actor memory and its embedding. Fires SkyrimNet_MemoryDeleted. A diary entry's memory
+ * can be deleted (the entry stays; editing the entry recreates it).
+ * @return true on success. false if it does not exist, PublicGetTimelineState() is 1, or it is
+ *         world knowledge or plugin-installed.
+ */
+bool (*PublicDeleteMemory)(int memoryId) = nullptr;
+
+/**
+ * Search the actors SkyrimNet has resolved (every actor it has registered in this save, loaded or not)
+ * by name. Use it to find an actor you can't see, e.g. an address line as the player types.
+ * Thread-safe, touches no game objects. Returns "[]" before a save is loaded. Cost grows with the
+ * number of known actors: call it off the game thread, and debounce per-keystroke searches.
+ *
+ * @param nameContains Case-insensitive substring of the actor's name (Unicode-aware). "" = everyone.
+ * @param maxCount     Result cap (<=0 = 25, at most 500).
+ * @return JSON array, best match first (exact name, then prefix, then a word starting with the
+ *         query, then anywhere; ties by name):
+ *         [{"uuid": 1234..., "formId": 106097, "name": "Mikael", "isPlayer": false}, ...]
+ *         One entry per actor under its current UUID. Duplicate names are all returned; telling
+ *         them apart (alive, location, unique base) is up to the caller. `formId` is the runtime
+ *         FormID SkyrimNet last saw for the actor, the same value PublicUUIDToFormID returns.
+ */
+std::string (*PublicSearchActors)(const char* nameContains, int maxCount) = nullptr;
+
+/**
+ * Register an event, the C++ counterpart of Papyrus SkyrimNetApi.RegisterEvent, optionally perceived by
+ * only a chosen list of actors. Persistent unless the event type is configured as ephemeral.
+ *
+ * Audience, i.e. who has the event in their history, prompts and memories, and who may react to it:
+ *   - audienceCount 0: everyone near the originator, plus the player (same as Papyrus RegisterEvent).
+ *   - audienceCount > 0: exactly the listed actors plus originator and target. Nobody else nearby, no
+ *     virtual NPCs, and not the player unless listed. A `direct_narration` originator still speaks; its
+ *     spoken reply is ordinary dialogue that bystanders hear.
+ *   Only each character's own history, memories and dialogue context are limited to the audience. The
+ *   GameMaster agent, speaker/target selection and combined history views still see the event.
+ *
+ * @param eventType        A registered event type (`direct_narration`, `persistent_generic`, `custom`, ...).
+ * @param content          The type's JSON payload. Plain text is wrapped: `{"narration": ...}` for
+ *                         direct_narration, `{"line": ...}` for persistent_generic, `{"description", "data"}`
+ *                         for custom.
+ * @param originatorFormId Actor the event comes from; 0 = none. Not a loaded actor = ignored (logged).
+ * @param targetFormId     Actor it is aimed at; 0 = none.
+ * @param audienceFormIds  Actors who perceive it (array of audienceCount FormIDs). Unloaded ones are skipped;
+ *                         if none is loaded, nothing is registered (it never falls back to nearby).
+ * @param audienceCount    Number of FormIDs in audienceFormIds; 0 = nearby audience.
+ * @return The stored event's id, or 0 when nothing was stored: empty type, unresolvable audience, a type that
+ *         is disabled or filtered, or an ephemeral type (which only notifies event callbacks).
+ *
+ * Callable from worker threads, like SkyrimNet's own event registration. FormIDs resolve through live
+ * actors, so the originator, target and audience must be loaded.
+ *
+ * @code
+ *   // Only Katarina learns what the letter says; she reacts to it out loud.
+ *   uint32_t audience[] = {katarinaFormId};
+ *   PublicRegisterEvent("direct_narration", "Cole hands Katarina a letter from Hulda. It reads: ...",
+ *                       katarinaFormId, 0, audience, 1);
+ * @endcode
+ */
+int (*PublicRegisterEvent)(const char* eventType, const char* content, uint32_t originatorFormId,
+                           uint32_t targetFormId, const uint32_t* audienceFormIds, uint32_t audienceCount) = nullptr;
+
+// =============================================================================
+// Custom Decision Requests (v12+)
+// =============================================================================
+
+/**
+ * Ask the decision model a typed question. Render your decision template, send it on SkyrimNet's
+ * `decisions` variant, and call the callback on a ThreadPool worker. The callback must be thread-safe;
+ * do not call RE:: functions from it.
+ *
+ * The template is a decision template (`[ state ]` / `[ question <id> choice|score|noul ]` /
+ * `[ criteria ]` blocks, not chat sections) under `prompts/decisions/` in your plugin, the same format
+ * as SkyrimNet's own decision templates. There is no chat fallback: when the user has no decision
+ * provider set up, the callback gets error `no_decisions_route` and nothing is sent, so fall back to
+ * PublicSendCustomPromptToLLM yourself if you need an answer anyway.
+ *
+ * @param templateName     Path under prompts/decisions/, without `.prompt`: "my_mod/is_hostile".
+ *                         A leading "decisions/" is accepted.
+ * @param contextJson      JSON object of context variables injected before rendering, or "".
+ * @param maxProbabilities Likeliest options kept per answer's `probabilities`; <=0 keeps all.
+ * @param callback         Called exactly once with (answer, json, success). The const char*s are only valid
+ *                         for the call.
+ *                         answer: the first question's answer as a string, ready to compare: the chosen key
+ *                         (choice), "true"/"false" (noul, yes when p >= 0.5) or the score; "" on failure.
+ *                         success == 1: json = {"model":"<dated build>","answers":{"<question id>":{
+ *                             "type":"choice","choice":"yes","confidence":0.82,"probabilities":{"yes":0.82,"no":0.18}},
+ *                             ...}}. A score answer has "score", a noul (yes/no) answer has "noul" (probability of
+ *                         yes); `confidence` and `probabilities` appear only when the model sent them.
+ *                         success == 0: {"error":"<code>","message":"..."} with code one of ai_disabled,
+ *                         no_decisions_route, template_failed, interface_failed, request_failed,
+ *                         cancelled, exception.
+ * @return true if the task was queued, false on immediate error (empty name, null callback).
+ *
+ * @code
+ *   PublicSendCustomDecisionToLLM("my_mod/is_hostile", "{\"npcName\":\"Lydia\"}", 3,
+ *       [](const char* answer, const char* json, int success) {
+ *           if (success && std::string_view(answer) == "yes") logger::info("hostile ({})", json);
+ *       });
+ * @endcode
+ */
+bool (*PublicSendCustomDecisionToLLM)(const char* templateName, const char* contextJson, int maxProbabilities,
+                                      std::function<void(const char* answer, const char* resultJson, int success)> callback) = nullptr;
+
+// =============================================================================
+// Package manager probe (independent of PublicGetVersion)
+// =============================================================================
+
+/**
+ * Version of SkyrimNet's AI-package contract, resolved by name whatever PublicGetVersion returns; nullptr
+ * on a SkyrimNet that predates it. 1 = the Papyrus natives RegisterPackageEx / UnregisterPackageEx /
+ * GetPackageOwner / ListPackage / HoldPackages / ReleaseHeldPackages / IsHoldingPackages on SkyrimNetApi and
+ * the SkyrimNet_OnPackageAdded / Removed / OnPackagesHeld / Released ModEvents (contract: SkyrimNetApi.psc).
+ * There are no C++ package functions; a DLL uses this to know the Papyrus contract is there.
+ */
+uint32_t (*PublicGetPackageApiVersion)() = nullptr;
+
+// =============================================================================
 // Initialization
 // =============================================================================
 
@@ -663,6 +913,7 @@ inline bool FindFunctions() {
     auto hDLL = LoadLibraryA("SkyrimNet");
     if (hDLL != nullptr) {
         PublicGetVersion = (int (*)()) GetProcAddress(hDLL, "PublicGetVersion");
+        PublicGetPackageApiVersion = reinterpret_cast<uint32_t (*)()>(GetProcAddress(hDLL, "PublicGetPackageApiVersion"));
         if (PublicGetVersion != nullptr) {
             int version = PublicGetVersion();
 
@@ -789,6 +1040,36 @@ inline bool FindFunctions() {
                 PublicQueryMemoriesForActor = reinterpret_cast<std::string(*)(uint32_t, const char*)>(
                     GetProcAddress(hDLL, "PublicQueryMemoriesForActor"));
             }
+
+            // v11+ functions
+            if (version >= 11) {
+                PublicGetTimelineState = reinterpret_cast<int(*)()>(
+                    GetProcAddress(hDLL, "PublicGetTimelineState"));
+                PublicQueryDiaryEntries = reinterpret_cast<std::string(*)(uint32_t, const char*)>(
+                    GetProcAddress(hDLL, "PublicQueryDiaryEntries"));
+                PublicAddDiaryEntry = reinterpret_cast<int(*)(uint32_t, const char*, double, const char*,
+                    const char*, float, const char*)>(
+                    GetProcAddress(hDLL, "PublicAddDiaryEntry"));
+                PublicUpdateDiaryEntry = reinterpret_cast<bool(*)(int, const char*, const char*)>(
+                    GetProcAddress(hDLL, "PublicUpdateDiaryEntry"));
+                PublicDeleteDiaryEntry = reinterpret_cast<bool(*)(int)>(
+                    GetProcAddress(hDLL, "PublicDeleteDiaryEntry"));
+                PublicUpdateMemory = reinterpret_cast<bool(*)(int, const char*)>(
+                    GetProcAddress(hDLL, "PublicUpdateMemory"));
+                PublicDeleteMemory = reinterpret_cast<bool(*)(int)>(
+                    GetProcAddress(hDLL, "PublicDeleteMemory"));
+                PublicSearchActors = reinterpret_cast<std::string(*)(const char*, int)>(
+                    GetProcAddress(hDLL, "PublicSearchActors"));
+                PublicRegisterEvent = reinterpret_cast<int(*)(const char*, const char*, uint32_t, uint32_t,
+                    const uint32_t*, uint32_t)>(GetProcAddress(hDLL, "PublicRegisterEvent"));
+            }
+
+            // v12+ functions
+            if (version >= 12) {
+                PublicSendCustomDecisionToLLM = reinterpret_cast<bool(*)(const char*, const char*, int,
+                    std::function<void(const char*, const char*, int)>)>(
+                    GetProcAddress(hDLL, "PublicSendCustomDecisionToLLM"));
+            }
         }
         return true;
     }
@@ -812,4 +1093,21 @@ inline bool FindFunctions() {
 inline std::string QueryMemoriesForActor(uint32_t formId, const MemoryQuery& query) {
     if (PublicQueryMemoriesForActor == nullptr) return "[]";
     return PublicQueryMemoriesForActor(formId, MemoryQueryToJSON(query).c_str());
+}
+
+/**
+ * Typed wrapper over PublicQueryDiaryEntries (v11+). Returns "[]" when the installed SkyrimNet predates v11.
+ *
+ * @code
+ *   DiaryQuery q;
+ *   q.minId    = lastIdIHave + 1;
+ *   q.orderBy  = DiaryOrder::IdAsc;
+ *   q.maxCount = 20;
+ *
+ *   std::string entries = QueryDiaryEntries(formId, q);
+ * @endcode
+ */
+inline std::string QueryDiaryEntries(uint32_t formId, const DiaryQuery& query) {
+    if (PublicQueryDiaryEntries == nullptr) return "[]";
+    return PublicQueryDiaryEntries(formId, DiaryQueryToJSON(query).c_str());
 }

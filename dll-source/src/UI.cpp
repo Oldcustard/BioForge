@@ -4,7 +4,10 @@
 // same runtime-binding style as SkyrimNet's. It is large and header-only, so it
 // is included here and nowhere else. It calls std::filesystem without including
 // it, which pch.h covers - keep pch.h first.
-#include "SKSEMenuFramework.h"
+#pragma warning(push)
+#pragma warning(disable : 4099 5054)
+#include "SKSEMenuFramework/SKSEMenuFramework.h"
+#pragma warning(pop)
 
 #include "UI.h"
 #include "BlockRules.h"

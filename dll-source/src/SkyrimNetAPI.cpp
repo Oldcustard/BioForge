@@ -1,7 +1,7 @@
 #include "pch.h"
 
 // The one and only inclusion of the vendor header - see SkyrimNetAPI.h.
-#include "SkyrimNet_PublicAPI.h"
+#include "SkyrimNet/CppAPI/PublicAPI.h"
 
 #include "SkyrimNetAPI.h"
 

@@ -192,16 +192,20 @@ Needs CMake, a C++23 MSVC toolchain and vcpkg.
 
 ```sh
 git submodule update --init --recursive
-cmake -S . -B build -G "Visual Studio 18 2026" -A x64 \
+cmake -S . --preset=release \
       -DCMAKE_TOOLCHAIN_FILE=<vcpkg>/scripts/buildsystems/vcpkg.cmake
-cmake --build build --config Release
+cmake --build --preset release
 ```
+
+If using Visual Studio MSVC 2022 add `-G "Visual Studio 17 2022"` to the fist `cmake` command.
+
 
 - 📁 Output is a complete mod folder at `build/BioForge/` that you can point MO2 at.
 - ♻️ Already have CommonLibSSE-NG checked out? Pass `-DBIOFORGE_COMMONLIB_DIR=<path>`.
 - ✏️ Prompts live in `mod-root/.../external/oldcustard.bioforge/prompts/` and can be
-  tuned without a rebuild. Read their header comments first, and bump the layer's
-  `manifest.json` version when they change.
+  tuned without a rebuild. Read their header comments first. To release a new version,
+  bump `VERSION` in the `project()` call in `CMakeLists.txt`; the build stamps the layer's
+  `manifest.json` and `settings/BioForge.yaml` from it.
 
 ```
 dll-source/src/

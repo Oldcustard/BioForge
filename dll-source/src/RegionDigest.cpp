@@ -498,12 +498,12 @@ namespace BioForge::RegionDigest
                     }
                 }
 
-                ScoredBio bio;
-                bio.score = score;
-                bio.name  = NameFromStem(stem);
-                bio.ties  = Staging::ExtractBlock(text, "relationships"sv);
-                bio.line  = "- " + bio.name + ": " + FirstSentence(summary, 240) + "\n";
-                scored.push_back(std::move(bio));
+                ScoredBio bioScored;
+                bioScored.score = score;
+                bioScored.name  = NameFromStem(stem);
+                bioScored.ties  = Staging::ExtractBlock(text, "relationships"sv);
+                bioScored.line  = "- " + bioScored.name + ": " + FirstSentence(summary, 240) + "\n";
+                scored.push_back(std::move(bioScored));
             }
 
             // Co-citation, over the CANDIDATES' relationships blocks rather than
