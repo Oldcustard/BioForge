@@ -2,6 +2,7 @@
 
 #include <windows.h>
 
+#include <cstdint>
 #include <codecvt>
 #include <locale>
 #include <string>
@@ -71,6 +72,8 @@ namespace SKSEMenuFramework {
         using AddWindowWithViewFunction = Model::WindowInterface* (*)(RenderFunction, const char*);
         using GetMainWindowFunction = Model::WindowInterface* (*)();
         using AddSectionItemFunction = void (*)(const char* path, RenderFunction rendererFunction);
+        using RenameSectionFunction = bool (*)(const char* path, const char* newName);
+        using DeleteSectionFunction = bool (*)(const char* path);
 
         using RegisterInputEventFuction = int64_t (*)(InputEventCallback callback);
         using UnregisterInputEventFuction = void (*)(uint64_t id);
@@ -82,6 +85,7 @@ namespace SKSEMenuFramework {
         using LoadTextureFuction = ImGuiMCP::ImTextureID (*)(const char* texturePath, ImGuiMCP::ImVec2* size);
         using DisposeTextureFuction = void (*)(const char* texturePath);
         using GetMenuFrameworkVersionFunction = float (*)();
+        using GetMenuFrameworkAPIVersionFunction = uint32_t (*)();
         using SetHotkeyEnabledFunction = void (*)(bool enabled);
         using IsHotkeyEnabledFunction = bool (*)();
 
@@ -141,11 +145,29 @@ namespace SKSEMenuFramework {
         };
     }
 
+    // Menu paths use unescaped '/' characters as separators. Prefix a literal slash with a backslash.
     inline void AddSectionItem(std::string menu, Model::RenderFunction rendererFunction) {
         static auto func = Model::Internal::GetFunction<Model::AddSectionItemFunction>("AddSectionItem");
         if (func) {
             return func((Model::Internal::key + "/" + menu).c_str(), rendererFunction);
         }
+    }
+
+    inline void FullPathAddSectionItem(std::string path, Model::RenderFunction rendererFunction) {
+        static auto func = Model::Internal::GetFunction<Model::AddSectionItemFunction>("AddSectionItem");
+        if (func) {
+            return func(path.c_str(), rendererFunction);
+        }
+    }
+
+    inline bool RenameSection(std::string path, std::string newName) {
+        static auto func = Model::Internal::GetFunction<Model::RenameSectionFunction>("RenameSection");
+        return func ? func(path.c_str(), newName.c_str()) : false;
+    }
+
+    inline bool DeleteSection(std::string path) {
+        static auto func = Model::Internal::GetFunction<Model::DeleteSectionFunction>("DeleteSection");
+        return func ? func(path.c_str()) : false;
     }
 
     inline Model::WindowInterface* AddWindow(Model::RenderFunction rendererFunction, bool doesWindowPauseGame = true) {
@@ -201,6 +223,12 @@ namespace SKSEMenuFramework {
         }
 
         return 0.0;
+    }
+
+    inline uint32_t GetMenuFrameworkAPIVersion() {
+        static auto func = Model::Internal::GetFunction<Model::GetMenuFrameworkAPIVersionFunction>(
+            "GetMenuFrameworkAPIVersion");
+        return func ? func() : 0;
     }
 
     inline bool IsAnyBlockingWindowOpened() {

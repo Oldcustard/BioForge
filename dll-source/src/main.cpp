@@ -65,7 +65,7 @@ namespace
     }
 }
 
-extern "C" __declspec(dllexport) bool SKSEAPI SKSEPlugin_Load(const SKSE::LoadInterface* a_skse)
+extern "C" __declspec(dllexport) bool SKSEPlugin_Load(const SKSE::LoadInterface* a_skse)
 {
     SKSE::Init(a_skse);
     logs::info("BioForge loaded"sv);

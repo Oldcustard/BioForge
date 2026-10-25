@@ -1,0 +1,35 @@
+BioForge - third-party notices and license report
+==================================================
+
+This file lists every component that ends up in BioForge.dll or in the mod
+folder, with the license that governs it. The full license texts are in this
+LICENSES folder, next to this file.
+
+Component                         Version        License              Where the text is
+--------------------------------  -------------  -------------------  ------------------------------------------
+BioForge (this project)           (see project)  GPL-3.0              BioForge-GPL-3.0.txt
+CommonLibSSE-NG                   (submodule)    GPL-3.0-or-later     CommonLibSSE-NG-GPL-3.0.txt
+  - linking exceptions                            WITH Modding and     CommonLibSSE-NG-EXCEPTIONS.md
+                                                  GPL-3.0 Linking
+                                                  Exception
+hde64 (x86/x64 length decoder)    (commonlib)    BSD-2-Clause         hde64-BSD-2-Clause.txt
+SkyrimNet plugin API headers      (vendored)     MIT                  SkyrimNet-CppAPI-MIT.txt
+SKSE Menu Framework headers       (vendored)     LGPL-2.1             SKSEMenuFramework-LGPL-2.1.txt
+DirectXTK (vcpkg)                 2026-05-07#1   MIT                  vcpkg/directxtk-copyright.txt
+DirectXMath (vcpkg)               2026-06-12     MIT                  vcpkg/directxmath-copyright.txt
+fmt (vcpkg)                       12.2.0#1       MIT                  vcpkg/fmt-copyright.txt
+spdlog (vcpkg)                    1.17.0#1       MIT                  vcpkg/spdlog-copyright.txt
+rapidcsv (vcpkg)                  8.99           BSD-3-Clause         vcpkg/rapidcsv-copyright.txt
+
+Notes
+-----
+- The vcpkg copyright files are copied verbatim from each package's
+  share/<package>/copyright file in the installed vcpkg tree, so they always
+  match the version that was actually built.
+- The SKSE Menu Framework headers are under LGPL-2.1. The LGPL text is
+  included here. Its license file does not name a copyright holder, so check
+  the upstream project before redistributing.
+- The SkyrimNet plugin API headers are MIT. SkyrimNet itself is licensed
+  separately and is not part of this mod.
+- The vcpkg packages are linked only through CommonLibSSE-NG and the BioForge
+  target.
