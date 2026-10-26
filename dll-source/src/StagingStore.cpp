@@ -66,6 +66,45 @@ namespace BioForge::Staging
             return -1;
         }
 
+        // A model sometimes runs a heading onto the end of the previous line
+        // ("...lets you find out.### bio_blocks"). Read that way, the heading
+        // is body text: the bio_blocks answers leaked verbatim into a
+        // committed speech_style once. Put a known heading back on a line of
+        // its own; any other "###" mid-line is left alone.
+        std::string UnglueHeadings(std::string_view a_raw)
+        {
+            std::string out;
+            out.reserve(a_raw.size() + 16);
+            std::size_t pos = 0;
+            while (pos < a_raw.size()) {
+                const auto hash = a_raw.find("###", pos);
+                if (hash == std::string_view::npos) {
+                    out.append(a_raw.substr(pos));
+                    break;
+                }
+                out.append(a_raw.substr(pos, hash - pos));
+
+                const auto lineStart = hash == 0 ? std::string_view::npos : a_raw.rfind('\n', hash - 1);
+                const auto from      = lineStart == std::string_view::npos ? 0 : lineStart + 1;
+                auto       hashEnd   = a_raw.find_first_not_of('#', hash);
+                if (hashEnd == std::string_view::npos) {
+                    hashEnd = a_raw.size();
+                }
+                if (!Trim(a_raw.substr(from, hash - from)).empty()) {
+                    const auto eol  = a_raw.find('\n', hashEnd);
+                    const auto name = a_raw.substr(hashEnd, eol == std::string_view::npos
+                                                                ? std::string_view::npos
+                                                                : eol - hashEnd);
+                    if (MatchBlockName(Trim(name)) != -1) {
+                        out += '\n';
+                    }
+                }
+                out.append(a_raw.substr(hash, hashEnd - hash));
+                pos = hashEnd;
+            }
+            return out;
+        }
+
         void WriteFile(const std::filesystem::path& a_path, std::string_view a_content)
         {
             std::error_code ec;
@@ -160,13 +199,16 @@ namespace BioForge::Staging
         int  current = -1;   // nothing captured before the first ### heading
         bool inFence = false;
 
+        const auto        unglued = UnglueHeadings(a_raw);
+        const std::string_view raw = unglued;
+
         std::size_t pos = 0;
-        while (pos <= a_raw.size()) {
-            const auto end = a_raw.find('\n', pos);
-            auto line = a_raw.substr(pos, end == std::string_view::npos
-                                              ? std::string_view::npos
-                                              : end - pos);
-            pos = end == std::string_view::npos ? a_raw.size() + 1 : end + 1;
+        while (pos <= raw.size()) {
+            const auto end = raw.find('\n', pos);
+            auto line = raw.substr(pos, end == std::string_view::npos
+                                            ? std::string_view::npos
+                                            : end - pos);
+            pos = end == std::string_view::npos ? raw.size() + 1 : end + 1;
 
             const auto trimmed = Trim(line);
             if (trimmed.empty()) {
@@ -183,13 +225,21 @@ namespace BioForge::Staging
             const bool isHeading =
                 !trimmed.empty() && trimmed.front() == '#' && !inFence;
             if (isHeading) {
-                const auto rest  = Trim(trimmed.substr(trimmed.find_first_not_of('#')));
+                const auto hashEnd = trimmed.find_first_not_of('#');
+                if (hashEnd == std::string_view::npos) {
+                    continue;   // a bare "###" line, not a heading
+                }
+                const auto rest  = Trim(trimmed.substr(hashEnd));
                 const auto index = MatchBlockName(rest);
                 if (index == kBioBlocksIndex) {
                     current = -1;   // read separately by ExtractSection
                     continue;
                 }
                 if (index >= 0) {
+                    // A heading seen twice means the model started its answer
+                    // over (Gerdil's reply held every section twice, and the
+                    // committed bio carried both copies). The later pass wins.
+                    blocks[index].clear();
                     current = index;
                     continue;
                 }
@@ -448,14 +498,20 @@ namespace BioForge::Staging
     {
         std::string body;
 
+        // Same reading as ParseResponse: headings run onto a line are split
+        // off, and when the section appears twice (a restarted answer) the
+        // later one wins, so the blocks and the bio come from the same pass.
+        const auto             unglued = UnglueHeadings(a_raw);
+        const std::string_view raw     = unglued;
+
         int         current = -1;   // -1 until the wanted heading is seen
         std::size_t pos     = 0;
-        while (pos <= a_raw.size()) {
-            const auto end  = a_raw.find('\n', pos);
-            const auto line = a_raw.substr(pos, end == std::string_view::npos
-                                                   ? std::string_view::npos
-                                                   : end - pos);
-            pos = end == std::string_view::npos ? a_raw.size() + 1 : end + 1;
+        while (pos <= raw.size()) {
+            const auto end  = raw.find('\n', pos);
+            const auto line = raw.substr(pos, end == std::string_view::npos
+                                                 ? std::string_view::npos
+                                                 : end - pos);
+            pos = end == std::string_view::npos ? raw.size() + 1 : end + 1;
 
             const auto trimmed = Trim(line);
             if (!trimmed.empty() && trimmed.front() == '#') {
@@ -466,12 +522,11 @@ namespace BioForge::Staging
                 const auto name = Trim(trimmed.substr(hashEnd));
                 if (MatchBlockName(name) == MatchBlockName(a_sectionName) &&
                     MatchBlockName(name) >= 0) {
+                    body.clear();
                     current = 1;
                     continue;
                 }
-                if (current > 0) {
-                    break;   // next heading ends the section we wanted
-                }
+                current = -1;   // the next heading ends the section we wanted
                 continue;
             }
 
